@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 """
-PyInstaller 打包配置（pywebview 架构）。
+PyInstaller 打包配置。
 
 使用方法：
     pyinstaller wechat_multi.spec
@@ -12,7 +12,7 @@ PyInstaller 打包配置（pywebview 架构）。
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(SPECPATH).resolve()  # SPECPATH = spec 文件所在目录
 
 a = Analysis(
     [str(ROOT / "main.py")],
@@ -20,12 +20,17 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(ROOT / "gui" / "index.html"), "gui"),
+        (str(ROOT / "assets"), "assets"),
     ],
     hiddenimports=[
         "webview",
         "webview.platforms.winforms",
         "clr_loader",
         "pythonnet",
+        "win32gui",
+        "win32process",
+        "win32api",
+        "psutil",
     ],
     hookspath=[],
     hooksconfig={},
@@ -43,7 +48,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="WeChatMulti",
+    name="WeChat-Echo",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -52,13 +57,5 @@ exe = EXE(
     runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
-    manifest="""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security>
-      <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
-    </security>
-  </trustInfo>
-</assembly>""",
-    icon=None,
+    icon=str(ROOT / "assets" / "icon.ico") if (ROOT / "assets" / "icon.ico").is_file() else None,
 )

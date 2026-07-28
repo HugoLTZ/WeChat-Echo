@@ -44,9 +44,13 @@ def run_as_admin() -> None:
 def main() -> None:
     # -- 管理员权限 --
     if not is_admin():
-        print("[WeChatMulti] 需要管理员权限（mklink 需要）。正在请求提权...")
-        run_as_admin()
-        sys.exit(0)
+        # cx_Freeze 打包后无法自动提权，提示用户手动以管理员运行
+        import tkinter.messagebox as mb
+        mb.showerror(
+            "需要管理员权限",
+            "请右键 WeChat-Echo.exe → 以管理员身份运行\n\n（mklink 命令需要管理员权限）"
+        )
+        sys.exit(1)
 
     # -- 初始化配置 --
     from config.settings import get_settings

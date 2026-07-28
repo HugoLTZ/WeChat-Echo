@@ -10,10 +10,16 @@ build_options = {
         ("gui/index.html", "gui/index.html"),
         ("assets/", "assets/"),
     ],
+    "excludes": [],
 }
 
 executables = [
-    Executable("main.py", target_name="WeChat-Echo"),
+    Executable(
+        "main.py",
+        target_name="WeChat-Echo",
+        base="gui",
+        icon="assets/icon.ico",
+    ),
 ]
 
 setup(
