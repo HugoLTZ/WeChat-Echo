@@ -12,7 +12,16 @@ import os
 import ctypes
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+# 打包后资源路径适配
+if getattr(sys, "frozen", False):
+    # PyInstaller / Nuitka 使用 sys._MEIPASS
+    if hasattr(sys, "_MEIPASS"):
+        PROJECT_ROOT = Path(sys._MEIPASS)
+    else:
+        # cx_Freeze 等：exe 所在目录即根目录
+        PROJECT_ROOT = Path(sys.executable).resolve().parent
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -115,8 +124,9 @@ def main() -> None:
     html_path = PROJECT_ROOT / "gui" / "index.html"
     html_content = html_path.read_text(encoding="utf-8")
 
-    # 注入标题栏图标 base64
+    # 注入资源图标 base64
     import base64
+    assets_dir = PROJECT_ROOT / "assets"
     icons = {
         "{{SETTING_ICON}}": "setting_selected.png",
         "{{CLOSE_ICON}}": "close_selected.png",
@@ -126,7 +136,7 @@ def main() -> None:
         "{{ICON_DELETE}}": "delete.png",
     }
     for placeholder, filename in icons.items():
-        p = PROJECT_ROOT / "assets" / filename
+        p = assets_dir / filename
         if p.is_file():
             b64 = base64.b64encode(p.read_bytes()).decode()
             html_content = html_content.replace(placeholder, f"data:image/png;base64,{b64}")
