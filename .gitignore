@@ -10,6 +10,12 @@ build/
 venv/
 .venv/
 
+# Build artifacts
+nuitka_build/
+nuitka_build_console/
+WeChat-Echo-Debug.spec
+WeChat-Echo-Test.spec
+
 # IDE
 .vscode/
 .idea/
