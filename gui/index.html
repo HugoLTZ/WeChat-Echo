@@ -3,489 +3,523 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>微信多开助手</title>
+<title>WeChat-Echo</title>
 <style>
   :root {
-    --bg: #f0f2f5;
-    --card-bg: #ffffff;
-    --text: #1a1a2e;
-    --text-secondary: #6b7280;
-    --border: #e5e7eb;
-    --primary: #4f46e5;
-    --primary-hover: #4338ca;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --danger-hover: #dc2626;
-    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1), 0 4px 6px -4px rgba(0,0,0,.1);
-    --radius: 12px;
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --text: #1d1d1f;
+    --secondary: #86868b;
+    --tertiary: #aeaeb2;
+    --border: #e8e8ed;
+    --accent: #0071e3;
+    --accent-hover: #0077ed;
+    --green: #34c759;
+    --orange: #ff9500;
+    --red: #ff3b30;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.04);
+    --shadow-md: 0 2px 8px rgba(0,0,0,.06), 0 0 0 .5px rgba(0,0,0,.04);
+    --radius: 14px;
     --radius-sm: 8px;
-    --transition: 0.2s ease;
+    --radius-xs: 6px;
+    --transition: .18s cubic-bezier(.25,.1,.25,1);
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
     background: var(--bg);
     color: var(--text);
     height: 100vh;
     display: flex; flex-direction: column;
-    user-select: none;
-    -webkit-user-select: none;
+    -webkit-font-smoothing: antialiased;
+    user-select: none; -webkit-user-select: none;
   }
 
-  /* ---------- header ---------- */
+  /* title bar ————————————————————— */
+  .titlebar {
+    display: flex; align-items: center;
+    padding: 6px 10px;
+    background: var(--bg);
+    user-select: none;
+  }
+  .titlebar-drag-area { flex: 1; height: 28px; }
+  .titlebar-btn {
+    width: 28px; height: 28px; border-radius: 50%; border: none;
+    cursor: pointer; background: none; color: var(--tertiary);
+    display: flex; align-items: center; justify-content: center;
+    transition: var(--transition); flex-shrink: 0;
+  }
+  .titlebar-btn img, .titlebar-close img { width: 14px; height: 14px; object-fit: contain; }
+  .titlebar-btn:hover, .titlebar-close:hover { background: rgba(0,0,0,.06); }
+  .titlebar-close {
+    width: 28px; height: 28px; border-radius: 50%; border: none;
+    cursor: pointer; background: none; color: var(--tertiary);
+    display: flex; align-items: center; justify-content: center;
+    transition: var(--transition); flex-shrink: 0;
+  }
+  .titlebar-close:hover { background: rgba(0,0,0,.06); }
+
+  /* header —————————————————————————— */
   .header {
-    background: var(--card-bg);
-    padding: 16px 24px;
+    padding: 12px 28px 12px;
     display: flex; align-items: center; gap: 16px;
-    border-bottom: 1px solid var(--border);
-    box-shadow: var(--shadow);
+    background: var(--bg);
     z-index: 10;
   }
-  .header h1 {
-    font-size: 18px; font-weight: 700;
-    background: linear-gradient(135deg, var(--primary), #818cf8);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    white-space: nowrap;
+  .header-logo { height: 48px; width: auto; }
+
+  /* main —————————————————————————— */
+  .main {
+    flex:1; overflow-y: auto;
+    padding: 4px 28px 20px;
+    display: flex; flex-direction: column; gap: 8px;
   }
-  .search-box {
-    flex: 1; max-width: 320px; position: relative;
+
+  /* empty ————————————————————————— */
+  .empty-state {
+    flex:1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 80px 20px; gap: 12px;
   }
-  .search-box input {
-    width: 100%; padding: 8px 12px 8px 36px;
-    border: 1px solid var(--border); border-radius: 20px;
-    font-size: 13px; outline: none; transition: var(--transition);
+  .empty-icon { font-size: 44px; opacity: .35; }
+  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
+  .empty-desc { font-size: 13px; color: var(--secondary); text-align: center; line-height: 1.7; }
+
+  /* card ————————————————————————— */
+  .card {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 14px;
+    box-shadow: var(--shadow-sm);
+    border: .5px solid transparent;
+    transition: var(--transition);
+    overflow: hidden;
+  }
+  .card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: rgba(0,0,0,.06);
+  }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot.online { background: var(--green); }
+  .dot.offline { background: var(--tertiary); }
+
+  .avatar {
+    width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: #f0f0f5;
+    font-size: 18px; font-weight: 500; color: var(--secondary);
+    letter-spacing: -.5px;
+  }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+  .info { flex:1; min-width: 0; }
+  .info .title {
+    font-size: 14px; font-weight: 600; letter-spacing: -.2px;
+    display: flex; align-items: center; gap: 5px;
+    cursor: default;
+  }
+  .info .title .edit-hint {
+    opacity: 0; font-size: 11px; color: var(--accent);
+    transition: var(--transition);
+  }
+  .card:hover .info .title .edit-hint { opacity: 1; }
+  .info .sub {
+    font-size: 12px; color: var(--secondary);
+    margin-top: 2px; letter-spacing: -.1px;
+  }
+
+  .badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 100px;
+    font-weight: 500; letter-spacing: -.1px; white-space: nowrap;
+  }
+  .badge-ok { background: #e8f8ed; color: #1a7d3e; }
+  .badge-warn { background: #fff3e0; color: #b05d00; }
+
+  .card-actions {
+    display: flex; gap: 2px; flex-shrink: 0;
+    transform: translateX(120%);
+    transition: transform .3s cubic-bezier(.4,0,.2,1);
+  }
+  .card:hover .card-actions {
+    transform: translateX(0);
+  }
+
+  /* buttons ——————————————————————— */
+  /* card action icon buttons */
+  .btn-icon {
+    width: 32px; height: 32px; border-radius: 50%; border: none;
+    cursor: pointer; transition: all .18s ease;
+    display: flex; align-items: center; justify-content: center;
+    background: none; flex-shrink: 0;
+  }
+  .btn-icon:hover { background: rgba(0,0,0,.05); }
+  .btn-icon img { width: 20px; height: 20px; object-fit: contain; opacity: .5; transition: opacity .18s ease; }
+  .btn-icon:hover img { opacity: .8; }
+  .btn-icon:disabled { cursor: default; }
+  .btn-icon:disabled img { opacity: .25; }
+
+  /* footer text buttons */
+  .btn-text {
+    padding: 8px 18px; border-radius: 100px; border: none;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    letter-spacing: -.2px; font-family: inherit;
+    transition: var(--transition); background: none;
+    color: var(--secondary);
+  }
+  .btn-text:hover { color: var(--text); background: rgba(0,0,0,.05); }
+  .btn-text.primary { background: var(--accent); color: #fff; }
+  .btn-text.primary:hover { background: var(--accent-hover); }
+
+  /* login CTA */
+  .btn-login {
+    padding: 10px 28px; border-radius: 100px; border: none;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: inherit; letter-spacing: -.2px;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.08);
+    transition: all .25s cubic-bezier(.25,.1,.25,1);
+  }
+  .btn-login:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.1);
+  }
+  .btn-login:active { transform: translateY(0); }
+
+  /* footer ——————————————————————— */
+  .footer {
+    padding: 14px 28px 18px;
+    display: flex; align-items: center; gap: 10px;
     background: var(--bg);
   }
-  .search-box input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
-  .search-box .search-icon {
-    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    color: var(--text-secondary); font-size: 14px;
-  }
-  .header-actions { display: flex; gap: 8px; }
-  .btn-icon {
-    width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border);
-    background: var(--card-bg); font-size: 16px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: var(--transition);
-  }
-  .btn-icon:hover { background: var(--bg); border-color: var(--primary); }
-
-  /* ---------- body ---------- */
-  .main {
-    flex: 1; overflow-y: auto; padding: 20px 24px;
-    display: flex; flex-direction: column; gap: 12px;
-  }
-
-  /* ---------- empty state ---------- */
-  .empty-state {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    padding: 60px 20px; color: var(--text-secondary);
-  }
-  .empty-state .empty-icon { font-size: 64px; margin-bottom: 16px; opacity: 0.6; }
-  .empty-state p { font-size: 15px; line-height: 1.8; text-align: center; }
-
-  /* ---------- account card ---------- */
-  .card {
-    background: var(--card-bg);
-    border-radius: var(--radius);
-    padding: 16px 20px;
-    box-shadow: var(--shadow);
-    display: flex; align-items: center; gap: 16px;
-    transition: var(--transition);
-    position: relative;
-  }
-  .card:hover { box-shadow: var(--shadow-lg); transform: translateY(-1px); }
-  .card .status-dot {
-    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
-  }
-  .card .status-dot.online { background: var(--success); box-shadow: 0 0 6px rgba(16,185,129,.5); }
-  .card .status-dot.offline { background: #d1d5db; }
-  .card .avatar {
-    width: 40px; height: 40px; border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary), #818cf8);
-    color: #fff; display: flex; align-items: center; justify-content: center;
-    font-size: 16px; font-weight: 600; flex-shrink: 0;
-  }
-  .card .info { flex: 1; min-width: 0; }
-  .card .info .name { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
-  .card .info .meta { font-size: 12px; color: var(--text-secondary); }
-  .card .tags { display: flex; gap: 6px; align-items: center; }
-  .badge {
-    font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500;
-    white-space: nowrap;
-  }
-  .badge.ok { background: #d1fae5; color: #065f46; }
-  .badge.warn { background: #fef3c7; color: #92400e; }
-  .badge.expired { background: #fee2e2; color: #991b1b; }
-  .card .actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-  /* ---------- buttons ---------- */
-  .btn {
-    padding: 7px 16px; border-radius: var(--radius-sm); border: none;
-    font-size: 12px; font-weight: 500; cursor: pointer; transition: var(--transition);
-    display: inline-flex; align-items: center; gap: 4px;
-    white-space: nowrap;
-  }
-  .btn-primary { background: var(--primary); color: #fff; }
-  .btn-primary:hover { background: var(--primary-hover); }
-  .btn-success { background: var(--success); color: #fff; }
-  .btn-success:hover { background: #059669; }
-  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); }
-  .btn-outline:hover { border-color: var(--primary); color: var(--primary); background: #f5f3ff; }
-  .btn-danger { background: transparent; border: 1px solid #fecaca; color: var(--danger); }
-  .btn-danger:hover { background: #fef2f2; }
-  .btn-sm { padding: 5px 10px; font-size: 11px; }
-
-  /* ---------- footer ---------- */
-  .footer {
-    background: var(--card-bg);
-    border-top: 1px solid var(--border);
-    padding: 12px 24px;
-    display: flex; align-items: center; gap: 12px;
-  }
-  .footer .status-text { font-size: 12px; color: var(--text-secondary); flex: 1; }
-  .footer .btn { font-size: 13px; padding: 9px 20px; }
-
-  /* ---------- modal ---------- */
+  /* modal ——————————————————————— */
   .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,.4);
+    position: fixed; inset: 0; background: rgba(0,0,0,.28);
     display: flex; align-items: center; justify-content: center;
-    z-index: 100; opacity: 0; pointer-events: none; transition: opacity .2s;
+    z-index: 100; opacity: 0; pointer-events: none;
+    transition: opacity .2s; backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   }
   .modal-overlay.active { opacity: 1; pointer-events: auto; }
   .modal {
-    background: var(--card-bg); border-radius: var(--radius);
-    padding: 24px; width: 420px; max-width: 90vw;
-    box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 16px;
+    background: var(--card); border-radius: var(--radius);
+    padding: 28px; width: 420px; max-width: 90vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,.15), 0 0 0 .5px rgba(0,0,0,.08);
+    display: flex; flex-direction: column; gap: 16px;
   }
-  .modal h2 { font-size: 17px; font-weight: 700; }
-  .modal label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+  .modal h2 { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+  .modal label { font-size: 12px; font-weight: 600; color: var(--secondary); text-transform: uppercase; letter-spacing: .5px; }
   .modal input, .modal select {
-    width: 100%; padding: 10px 12px; border: 1px solid var(--border);
-    border-radius: var(--radius-sm); font-size: 14px; outline: none;
-    transition: var(--transition);
+    width: 100%; padding: 10px 14px; border: none; border-radius: var(--radius-xs);
+    font-size: 14px; outline: none; background: #f5f5f7; color: var(--text);
+    font-family: inherit; transition: var(--transition);
   }
-  .modal input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.1); }
-  .modal .row { display: flex; gap: 12px; align-items: center; }
-  .modal .row input { flex: 1; }
-  .modal .row .btn { flex-shrink: 0; }
-  .modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-  .modal .path-readonly {
-    padding: 10px 12px; background: var(--bg); border-radius: var(--radius-sm);
-    font-size: 13px; color: var(--text-secondary); word-break: break-all;
-    cursor: default;
+  .modal input:focus { background: #eeeef2; }
+  .modal .row { display: flex; gap: 8px; align-items: center; }
+  .modal .row input { flex:1; }
+  .modal .path-display {
+    flex:1; padding: 10px 14px; background: #f5f5f7;
+    border-radius: var(--radius-xs); font-size: 12px;
+    color: var(--secondary); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
   }
-  .hint {
-    font-size: 12px; color: var(--text-secondary); line-height: 1.6;
-    padding: 10px 12px; background: #fffbeb; border-radius: var(--radius-sm);
-    border: 1px solid #fde68a;
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .modal .hint {
+    font-size: 12px; color: var(--orange); line-height: 1.6;
+    padding: 10px 14px; background: #fff9f0; border-radius: var(--radius-sm);
   }
+  .modal .checkbox-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .modal .checkbox-row input { width: auto; }
 
-  /* ---------- toast ---------- */
+  /* toast ——————————————————————— */
   .toast-container {
-    position: fixed; top: 20px; right: 20px; z-index: 200;
+    position: fixed; top: 24px; right: 24px; z-index: 200;
     display: flex; flex-direction: column; gap: 8px;
   }
   .toast {
-    padding: 12px 20px; border-radius: var(--radius-sm); font-size: 13px;
-    box-shadow: var(--shadow-lg); animation: slideIn .3s ease;
-    max-width: 360px;
+    padding: 10px 18px; border-radius: 100px; font-size: 13px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.12);
+    animation: slideIn .3s cubic-bezier(.25,.1,.25,1);
+    font-weight: 500; letter-spacing: -.1px; backdrop-filter: blur(10px);
   }
-  .toast.success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
-  .toast.error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-  @keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+  .toast.success { background: rgba(52,199,89,.92); color: #fff; }
+  .toast.error { background: rgba(255,59,48,.92); color: #fff; }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-12px) scale(.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* scrollbar ——————————————————— */
+  .main::-webkit-scrollbar { width: 5px; }
+  .main::-webkit-scrollbar-track { background: transparent; }
+  .main::-webkit-scrollbar-thumb { background: #d5d5da; border-radius: 100px; }
+  .main::-webkit-scrollbar-thumb:hover { background: #c5c5ca; }
 </style>
 </head>
 <body>
 
-<!-- header -->
-<div class="header">
-  <h1>微信多开助手</h1>
-  <div class="search-box">
-    <span class="search-icon">🔍</span>
-    <input type="text" id="searchInput" placeholder="搜索账号..." oninput="doSearch()">
-  </div>
-  <div class="header-actions">
-    <button class="btn-icon" title="设置" onclick="openSettings()">⚙</button>
-  </div>
+<!-- title bar -->
+<div class="titlebar">
+  <span class="titlebar-drag-area"></span>
+  <button class="titlebar-btn" title="设置" onclick="openSettings()">
+    <img src="{{SETTING_ICON}}" alt="">
+  </button>
+  <button class="titlebar-close" onclick="api.close_window()" title="关闭">
+    <img src="{{CLOSE_ICON}}" alt="">
+  </button>
 </div>
 
-<!-- account list -->
+<!-- header -->
+<div class="header">
+  <img class="header-logo" src="{{TITLE_LOGO}}" alt="WeChat-Echo">
+</div>
+
+<!-- list -->
 <div class="main" id="accountList">
   <div class="empty-state">
-    <div class="empty-icon">⏳</div>
-    <p>正在加载...</p>
+    <div class="empty-icon">􀈷</div>
+    <div class="empty-title">暂无账号</div>
+    <div class="empty-desc">点击下方添加账号，<br>首次使用请先在微信中扫码登录后备份凭证</div>
   </div>
 </div>
 
 <!-- footer -->
 <div class="footer">
-  <span class="status-text" id="statusBar">就绪</span>
-  <button class="btn btn-outline btn-danger btn-sm" onclick="killAll()" title="关闭全部微信进程">⏹ 关闭微信</button>
-  <button class="btn btn-primary" onclick="launchAll()">▶ 一键启动全部</button>
-  <button class="btn btn-success" onclick="openAddAccount()">+ 添加账号</button>
+  <button class="btn-text" onclick="killAll()">关闭微信</button>
+  <span style="flex:1"></span>
+  <button class="btn-text" onclick="openAddAccount()">添加账号</button>
+  <button class="btn-login" onclick="launchAll()">登录</button>
 </div>
 
 <!-- toast -->
 <div class="toast-container" id="toastContainer"></div>
 
-<!-- add account modal -->
+<!-- edit name modal -->
+<div class="modal-overlay" id="editNameModal">
+  <div class="modal">
+    <h2>编辑微信名</h2>
+    <div><label>微信名</label><input type="text" id="editNameInput" placeholder="输入微信昵称" onkeydown="if(event.key==='Enter')doEditWechatName()"></div>
+    <div class="modal-actions">
+      <button class="btn-text" onclick="closeModal('editNameModal')">取消</button>
+      <button class="btn-login" onclick="doEditWechatName()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- add modal -->
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <h2>添加账号</h2>
-    <div>
-      <label>账号名称</label>
-      <input type="text" id="addName" placeholder="如：客服1号、个人号" autofocus>
-    </div>
-    <div>
-      <label>备注（可选）</label>
-      <input type="text" id="addRemark" placeholder="如：工作用">
-    </div>
-    <div class="hint">⚠ 请先在微信中扫码登录该账号，登录成功后回到本工具，点击账号卡片的「备份凭证」按钮保存登录状态。</div>
+    <div><label>名称</label><input type="text" id="addName" placeholder="输入账号名称" autofocus></div>
+    <div class="hint">添加后请在微信中登录该账号，然后点击卡片中的备份按钮，下次即可免扫码启动</div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('addModal')">取消</button>
-      <button class="btn btn-primary" onclick="doAddAccount()">确认</button>
+      <button class="btn-text" onclick="closeModal('addModal')">取消</button>
+      <button class="btn-login" onclick="doAddAccount()">确认</button>
     </div>
   </div>
 </div>
 
 <!-- settings modal -->
 <div class="modal-overlay" id="settingsModal">
-  <div class="modal" style="width:500px;">
+  <div class="modal" style="width:480px;">
     <h2>设置</h2>
-    <div>
-      <label>微信主程序 (Weixin.exe)</label>
-      <div class="row">
-        <div class="path-readonly" id="setExePath" style="flex:1">-</div>
-        <button class="btn btn-outline btn-sm" onclick="browseFile('exe')">浏览</button>
-      </div>
-    </div>
-    <div>
-      <label>微信数据目录（xwechat_files 所在目录）</label>
-      <div class="row">
-        <div class="path-readonly" id="setDataDir" style="flex:1">-</div>
-        <button class="btn btn-outline btn-sm" onclick="browseFile('data')">浏览</button>
-      </div>
-    </div>
-    <div>
-      <label>本工具数据存储目录</label>
-      <div class="row">
-        <div class="path-readonly" id="setRootDir" style="flex:1">-</div>
-        <button class="btn btn-outline btn-sm" onclick="browseFile('root')">浏览</button>
-      </div>
-    </div>
-    <div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-        <input type="checkbox" id="setAutoStart"> 开机自动启动
-      </label>
-    </div>
-    <div>
-      <label>日志级别</label>
-      <select id="setLogLevel">
-        <option>DEBUG</option>
-        <option selected>INFO</option>
-        <option>WARNING</option>
-        <option>ERROR</option>
-      </select>
-    </div>
+    <div><label>微信程序</label><div class="row"><span class="path-display" id="setExe">-</span><button class="btn-text" onclick="browseFile('exe')">浏览</button></div></div>
+    <div><label>数据目录</label><div class="row"><span class="path-display" id="setData">-</span><button class="btn-text" onclick="browseFile('data')">浏览</button></div></div>
+    <div><label>存储位置</label><div class="row"><span class="path-display" id="setRoot">-</span><button class="btn-text" onclick="browseFile('root')">浏览</button></div></div>
+    <label class="checkbox-row"><input type="checkbox" id="setAuto"> 开机自动启动</label>
+    <div class="row"><label style="flex:1">日志级别</label><select id="setLog" style="width:auto"><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeModal('settingsModal')">取消</button>
-      <button class="btn btn-primary" onclick="doSaveSettings()">保存</button>
+      <button class="btn-text" onclick="closeModal('settingsModal')">取消</button>
+      <button class="btn-login" onclick="doSaveSettings()">保存</button>
     </div>
   </div>
 </div>
 
 <script>
-// ============ pywebview bridge ============
-// pywebview 6.x 必须等 pywebviewready 事件，api 才可用
 let api = null;
-
 window.addEventListener('pywebviewready', () => {
   api = window.pywebview.api;
-  document.getElementById('accountList').innerHTML = '';  // 清除加载提示
   refresh();
   setInterval(refreshStatus, 3000);
 });
 
-// ============ state ============
+// ——— titlebar drag ———
+let dragInfo = null;
+document.addEventListener('mousedown', e => {
+  if (e.target.closest('.titlebar') && !e.target.closest('button')) {
+    dragInfo = { sx: e.screenX, sy: e.screenY };
+  }
+});
+document.addEventListener('mousemove', () => {
+  if (dragInfo && api && api.move_window_by) {
+    const dx = event.screenX - dragInfo.sx;
+    const dy = event.screenY - dragInfo.sy;
+    dragInfo.sx = event.screenX;
+    dragInfo.sy = event.screenY;
+    api.move_window_by(dx, dy);
+  }
+});
+document.addEventListener('mouseup', () => { dragInfo = null; });
+
 let accounts = [];
 
-// ============ data ============
+// ——— data ———
 async function refresh() {
-  try {
-    accounts = await api.get_accounts();
-    renderAccounts();
-  } catch(e) { console.error(e); }
+  try { accounts = await api.get_accounts(); render(); } catch(e) {}
 }
-
 async function refreshStatus() {
   try {
-    const status = await api.get_status();
-    document.getElementById('statusBar').innerText =
-      `就绪 | 已添加 ${status.total_accounts} 个账号 | 微信进程: ${status.wechat_count}/4`;
+    const s = await api.get_status();
+    await api.refresh_online_status();
+    if (s.wechat_count === 0) await refresh();
   } catch(e) {}
 }
 
-// ============ render ============
-function renderAccounts(filtered = null) {
+// ——— render ———
+function render(filtered) {
   const list = filtered || accounts;
-  const container = document.getElementById('accountList');
-
-  if (list.length === 0) {
-    container.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📋</div>
-        <p>还没有账号<br>点击下方「添加账号」开始使用</p>
-        <p style="font-size:12px;color:#9ca3af;margin-top:8px;">首次使用请先在微信中扫码登录<br>然后回到这里点击「备份凭证」</p>
-      </div>`;
+  const c = document.getElementById('accountList');
+  if (!list.length) {
+    c.innerHTML = '<div class="empty-state"><div class="empty-icon">􀈷</div><div class="empty-title">暂无账号</div><div class="empty-desc">点击下方添加账号，<br>首次使用请先在微信中扫码登录后备份凭证</div></div>';
     return;
   }
+  c.innerHTML = list.map(a => {
+    const last = a.last_login_text ? `上次登录 · ${a.last_login_text}` : '从未登录';
 
-  container.innerHTML = list.map(acc => {
-    const dotClass = acc.is_online ? 'online' : 'offline';
-    const initial = acc.name.charAt(0).toUpperCase();
-    const badge = acc.has_credentials
-      ? '<span class="badge ok">✓ 已备份</span>'
-      : '<span class="badge warn">⚠ 未备份</span>';
-    const lastLogin = acc.last_login ? `最后登录: ${acc.last_login}` : '从未登录';
-    const launchDisabled = acc.is_online ? 'disabled' : '';
+    const avatar = a.avatar_base64
+      ? `<img src="${a.avatar_base64}" onerror="this.style.display='none';this.nextSibling.style.display='flex'" alt=""><span style="display:none">${esc(a.display_title).charAt(0)}</span>`
+      : `<span>${(a.display_title || a.name).charAt(0)}</span>`;
 
-    return `
-      <div class="card" id="card-${acc.id}">
-        <div class="status-dot ${dotClass}"></div>
-        <div class="avatar">${initial}</div>
-        <div class="info">
-          <div class="name">${esc(acc.name)}</div>
-          <div class="meta">${lastLogin}</div>
-        </div>
-        <div class="tags">${badge}</div>
-        <div class="actions">
-          <button class="btn btn-primary btn-sm" onclick="launchAccount('${acc.id}')" ${launchDisabled}>
-            ${acc.is_online ? '● 在线' : '▶ 启动'}
-          </button>
-          <button class="btn btn-outline btn-sm" onclick="backupCredentials('${acc.id}')">📋 备份凭证</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteAccount('${acc.id}')">🗑</button>
-        </div>
-      </div>`;
+    return `<div class="card">
+      <div class="avatar">${avatar}</div>
+      <div class="info">
+        <div class="title" onclick="editWechatName('${a.id}')">${esc(a.display_title)}<span class="edit-hint">✎</span></div>
+        <div class="sub">${last}${a.has_credentials ? '' : '  ·  请先备份凭证'}</div>
+      </div>
+      <div class="card-actions">
+        <button class="btn-icon" onclick="launchAccount('${a.id}')" ${a.is_online ? 'disabled' : ''} title="启动">
+          <img src="{{ICON_RUN}}" alt="">
+        </button>
+        <button class="btn-icon" onclick="backupCredentials('${a.id}')" title="备份凭证">
+          <img src="{{ICON_SAVE}}" alt="">
+        </button>
+        <button class="btn-icon" onclick="deleteAccount('${a.id}')" title="删除">
+          <img src="{{ICON_DELETE}}" alt="">
+        </button>
+      </div>
+    </div>`;
   }).join('');
 }
 
-function doSearch() {
-  const kw = document.getElementById('searchInput').value.trim().toLowerCase();
-  if (!kw) { renderAccounts(); return; }
-  const filtered = accounts.filter(a =>
-    a.name.toLowerCase().includes(kw) || a.remark.toLowerCase().includes(kw)
-  );
-  renderAccounts(filtered);
-}
 
-// ============ actions ============
+// ——— actions ———
 async function launchAccount(id) {
-  const result = await api.launch_account(id);
-  toast(result.msg, result.ok ? 'success' : 'error');
+  const r = await api.launch_account(id);
+  toast(r.ok, r.msg);
   await refresh();
 }
-
 async function backupCredentials(id) {
-  const result = await api.backup_credentials(id);
-  toast(result.msg, result.ok ? 'success' : 'error');
+  const r = await api.backup_credentials(id);
+  toast(r.ok, r.msg);
   await refresh();
 }
-
 async function deleteAccount(id) {
-  const acc = accounts.find(a => a.id === id);
-  if (!acc) return;
-  const delCred = confirm(`确定删除「${acc.name}」？\n\n点击「确定」同时删除凭证备份\n点击「取消」放弃操作`);
-  if (!delCred) return;
-  const ok = await api.delete_account(id, true);
-  if (ok) toast('已删除', 'success');
+  const a = accounts.find(x => x.id === id);
+  if (!a || !confirm(`删除「${a.display_title || a.name}」？\n确定同时删除凭证备份`)) return;
+  await api.delete_account(id, true);
+  toast(true, '已删除');
   await refresh();
 }
-
 async function launchAll() {
-  const result = await api.launch_all();
-  toast(result.msg, result.ok ? 'success' : 'error');
+  const r = await api.launch_all();
+  toast(r.ok, r.msg);
   await refresh();
 }
-
 async function killAll() {
-  const result = await api.kill_all_wechat();
-  toast(result.msg, 'success');
+  const r = await api.kill_all_wechat();
+  toast(r.ok, r.msg);
   await refresh();
 }
-
 async function doAddAccount() {
-  const name = document.getElementById('addName').value.trim();
-  const remark = document.getElementById('addRemark').value.trim();
-  if (!name) { toast('请输入账号名称', 'error'); return; }
-  await api.add_account(name, remark);
+  const n = document.getElementById('addName').value.trim();
+  if (!n) { toast(false, '请输入名称'); return; }
+  await api.add_account(n);
   closeModal('addModal');
   document.getElementById('addName').value = '';
-  document.getElementById('addRemark').value = '';
-  toast(`已添加「${name}」`, 'success');
+  toast(true, `已添加「${n}」`);
   await refresh();
 }
+let editTargetId = null;
 
-// ============ settings ============
+function editWechatName(id) {
+  editTargetId = id;
+  const a = accounts.find(x => x.id === id);
+  document.getElementById('editNameInput').value = a.wechat_name || a.wxid_display || '';
+  openModal('editNameModal');
+  document.getElementById('editNameInput').focus();
+  document.getElementById('editNameInput').select();
+}
+
+async function doEditWechatName() {
+  const v = document.getElementById('editNameInput').value.trim();
+  if (v) {
+    await api.update_wechat_name(editTargetId, v);
+    await refresh();
+  }
+  closeModal('editNameModal');
+}
+
+// ——— settings ———
 async function openSettings() {
   const s = await api.get_settings_data();
-  document.getElementById('setExePath').innerText = s.wechat_exe_path;
-  document.getElementById('setDataDir').innerText = s.wechat_data_dir;
-  document.getElementById('setRootDir').innerText = s.root_data_dir;
-  document.getElementById('setAutoStart').checked = s.auto_start;
-  document.getElementById('setLogLevel').value = s.log_level;
+  document.getElementById('setExe').innerText = s.wechat_exe_path;
+  document.getElementById('setData').innerText = s.wechat_data_dir;
+  document.getElementById('setRoot').innerText = s.root_data_dir;
+  document.getElementById('setAuto').checked = s.auto_start;
+  document.getElementById('setLog').value = s.log_level;
   openModal('settingsModal');
 }
-
 async function doSaveSettings() {
-  const data = {
-    wechat_exe_path: document.getElementById('setExePath').innerText,
-    wechat_data_dir: document.getElementById('setDataDir').innerText,
-    root_data_dir: document.getElementById('setRootDir').innerText,
-    auto_start: document.getElementById('setAutoStart').checked,
-    log_level: document.getElementById('setLogLevel').value,
-  };
-  const result = await api.save_settings(data);
-  toast(result.msg, result.ok ? 'success' : 'error');
-  if (result.ok) closeModal('settingsModal');
+  const r = await api.save_settings({
+    wechat_exe_path: document.getElementById('setExe').innerText,
+    wechat_data_dir: document.getElementById('setData').innerText,
+    root_data_dir: document.getElementById('setRoot').innerText,
+    auto_start: document.getElementById('setAuto').checked,
+    log_level: document.getElementById('setLog').value,
+  });
+  toast(r.ok, r.msg);
+  if (r.ok) closeModal('settingsModal');
 }
-
 async function browseFile(type) {
-  const title = type === 'exe' ? '选择微信主程序' : '选择目录';
-  const ft = type === 'exe' ? '可执行文件' : '';
-  const path = await api.select_file(title, ft);
-  if (path) {
-    if (type === 'exe') document.getElementById('setExePath').innerText = path;
-    else if (type === 'data') document.getElementById('setDataDir').innerText = path;
-    else document.getElementById('setRootDir').innerText = path;
+  const p = await api.select_file(type === 'exe' ? '选择微信程序' : '选择目录', type === 'exe' ? 'exe' : '');
+  if (p) {
+    if (type === 'exe') document.getElementById('setExe').innerText = p;
+    else if (type === 'data') document.getElementById('setData').innerText = p;
+    else document.getElementById('setRoot').innerText = p;
   }
 }
 
-// ============ modal helpers ============
+// ——— modal ———
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 function openAddAccount() { openModal('addModal'); document.getElementById('addName').focus(); }
-document.querySelectorAll('.modal-overlay').forEach(ov => {
-  ov.addEventListener('click', e => { if (e.target === ov) ov.classList.remove('active'); });
-});
+document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); }));
 
-// ============ toast ============
-function toast(msg, type = 'success') {
-  const container = document.getElementById('toastContainer');
+// ——— toast ———
+function toast(ok, msg) {
   const el = document.createElement('div');
-  el.className = `toast ${type}`;
+  el.className = `toast ${ok ? 'success' : 'error'}`;
   el.innerText = msg;
-  container.appendChild(el);
-  setTimeout(() => { el.remove(); }, 3000);
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
 }
 
-// ============ utils ============
 function esc(s) { const d = document.createElement('div'); d.innerText = s; return d.innerHTML; }
-
-// ============ start ============
-// 初始化由 pywebviewready 事件触发，见上方事件监听
 </script>
 </body>
 </html>

@@ -27,12 +27,16 @@ class Account:
         credential_dir: str = "",
         last_login: str = "",
         remark: str = "",
+        wxid: str = "",
+        wechat_name: str = "",
     ) -> None:
         self.id: str = account_id or uuid.uuid4().hex[:12]
         self.name: str = name
         self.credential_dir: str = credential_dir
         self.last_login: str = last_login
         self.remark: str = remark
+        self.wxid: str = wxid
+        self.wechat_name: str = wechat_name
         self._online: bool = False
 
     # ---- computed ----
@@ -54,6 +58,23 @@ class Account:
         return (p / "global_config").is_file() and (p / "global_config.crc").is_file()
 
     @property
+    def avatar_path(self) -> str:
+        """头像文件路径（可能为空）。"""
+        if not self.credential_dir:
+            return ""
+        p = Path(self.credential_dir) / "avatar.jpg"
+        return str(p) if p.is_file() else ""
+
+    @property
+    def wxid_display(self) -> str:
+        """用于显示的 wxid 简称。"""
+        if not self.wxid:
+            return ""
+        # 去掉 wxid_ 前缀和设备后缀，保留中间主体
+        parts = self.wxid.replace("wxid_", "").split("_")
+        return parts[0] if parts else self.wxid
+
+    @property
     def credential_status(self) -> str:
         """凭证状态文字。"""
         if not self.has_credentials:
@@ -70,6 +91,8 @@ class Account:
             "credential_dir": self.credential_dir,
             "last_login": self.last_login,
             "remark": self.remark,
+            "wxid": self.wxid,
+            "wechat_name": self.wechat_name,
         }
 
     @classmethod
@@ -80,6 +103,8 @@ class Account:
             credential_dir=data.get("credential_dir", ""),
             last_login=data.get("last_login", ""),
             remark=data.get("remark", ""),
+            wxid=data.get("wxid", ""),
+            wechat_name=data.get("wechat_name", ""),
         )
 
     def __repr__(self) -> str:
@@ -145,6 +170,18 @@ class AccountManager:
         if acc:
             acc.last_login = datetime.now().strftime(DATE_FORMAT)
             self._save()
+
+    def refresh_wxid(self, account_id: str) -> bool:
+        """从备份目录读取 wxid.txt 并更新到账号信息。"""
+        acc = self._accounts.get(account_id)
+        if not acc or not acc.credential_dir:
+            return False
+        wxid_file = Path(acc.credential_dir) / "wxid.txt"
+        if wxid_file.is_file():
+            acc.wxid = wxid_file.read_text(encoding="utf-8").strip()
+            self._save()
+            return True
+        return False
 
     def search(self, keyword: str) -> list[Account]:
         """按关键词搜索账号（名称 + 备注）。"""

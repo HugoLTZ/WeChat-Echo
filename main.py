@@ -1,5 +1,5 @@
 """
-微信多开免扫码登录工具 —— 程序入口。
+WeChat-Echo免扫码登录工具 —— 程序入口。
 
 架构：pywebview (HTML/CSS 前端) + Python (业务逻辑)
   - GUI: gui/index.html + gui/api.py
@@ -51,7 +51,7 @@ def main() -> None:
         settings.log_level,
     )
     logger = get_logger("main")
-    logger.info("===== 微信多开助手 启动 =====")
+    logger.info("===== WeChat-Echo 启动 =====")
 
     # -- 初始化核心模块 --
     from core.account_manager import AccountManager
@@ -94,10 +94,14 @@ def main() -> None:
         api.launch_account,
         api.launch_all,
         api.get_status,
+        api.refresh_online_status,
         api.kill_all_wechat,
         api.get_settings_data,
         api.save_settings,
         api.select_file,
+        api.update_wechat_name,
+        api.move_window_by,
+        api.close_window,
     ]
 
     class Api:
@@ -111,19 +115,37 @@ def main() -> None:
     html_path = PROJECT_ROOT / "gui" / "index.html"
     html_content = html_path.read_text(encoding="utf-8")
 
+    # 注入标题栏图标 base64
+    import base64
+    icons = {
+        "{{SETTING_ICON}}": "setting_selected.png",
+        "{{CLOSE_ICON}}": "close_selected.png",
+        "{{TITLE_LOGO}}": "title_1.png",
+        "{{ICON_RUN}}": "run.png",
+        "{{ICON_SAVE}}": "save.png",
+        "{{ICON_DELETE}}": "delete.png",
+    }
+    for placeholder, filename in icons.items():
+        p = PROJECT_ROOT / "assets" / filename
+        if p.is_file():
+            b64 = base64.b64encode(p.read_bytes()).decode()
+            html_content = html_content.replace(placeholder, f"data:image/png;base64,{b64}")
+
     window = webview.create_window(
-        title="微信多开助手",
+        title="WeChat-Echo",
         html=html_content,
         js_api=api_obj,
-        width=660,
-        height=720,
-        min_size=(560, 500),
+        width=440,
+        height=620,
+        frameless=True,
+        resizable=False,
         text_select=False,
+        easy_drag=False,
     )
 
     logger.info("GUI 已启动")
     webview.start(debug=False)
-    logger.info("===== 微信多开助手 退出 =====")
+    logger.info("===== WeChat-Echo 退出 =====")
 
 
 if __name__ == "__main__":

@@ -51,10 +51,11 @@ class CredentialManager:
 
     def backup(self, target_dir: Path) -> bool:
         """
-        将微信当前使用的凭证备份到指定目录。
+        将微信当前使用的凭证备份到指定目录，
+        同时自动检测并保存 wxid 和头像。
 
         Args:
-            target_dir: 备份目标目录（如 D:/WeChatMulti/credentials/acc_A）。
+            target_dir: 备份目标目录。
 
         Returns:
             备份是否成功。
@@ -80,9 +81,64 @@ class CredentialManager:
                 logger.warning("凭证文件不存在: %s", src)
                 success = False
 
+        # 自动检测并保存 wxid 和头像
+        if success:
+            self._detect_and_save_user_info(target_dir)
+
         if success:
             logger.info("凭证备份成功 → %s", target_dir)
         return success
+
+    @staticmethod
+    def _detect_and_save_user_info(target_dir: Path) -> None:
+        """检测当前微信的 wxid 和头像，保存到账号备份目录。"""
+        from config.settings import get_settings
+        s = get_settings()
+        xwechat_dir = Path(s.wechat_data_dir) / "xwechat_files"
+        if not xwechat_dir.is_dir():
+            return
+
+        now = __import__("time").time()
+
+        # 1) 找最近活跃的 wxid 目录
+        wxid_dirs = []
+        for d in xwechat_dir.iterdir():
+            if d.is_dir() and d.name.startswith("wxid_"):
+                max_mtime = 0
+                for f in d.rglob("*"):
+                    if f.is_file():
+                        mtime = f.stat().st_mtime
+                        if mtime > max_mtime:
+                            max_mtime = mtime
+                wxid_dirs.append((max_mtime, d.name))
+        wxid_dirs.sort(reverse=True)
+
+        detected_wxid = None
+        if wxid_dirs and (now - wxid_dirs[0][0]) < 300:
+            # 最近 5 分钟内有活动的 wxid
+            detected_wxid = wxid_dirs[0][1]
+            (target_dir / "wxid.txt").write_text(detected_wxid, encoding="utf-8")
+            logger.debug("检测到 wxid: %s", detected_wxid)
+
+        # 2) 找最近修改的头像文件（无时间限制，取最新的）
+        head_dir = xwechat_dir / "all_users" / "head_imgs"
+        head_files = []
+        if head_dir.is_dir():
+            for d in head_dir.iterdir():
+                if d.is_dir():
+                    for f in d.iterdir():
+                        if f.is_file():
+                            head_files.append((f.stat().st_mtime, f))
+        head_files.sort(reverse=True)
+
+        if head_files:
+            try:
+                shutil.copy2(str(head_files[0][1]), str(target_dir / "avatar.jpg"))
+                logger.debug("头像已保存: %s (mtime=%s)",
+                             head_files[0][1],
+                             __import__("datetime").datetime.fromtimestamp(head_files[0][0]))
+            except OSError as e:
+                logger.debug("头像保存失败: %s", e)
 
     # ---- 凭证切换 ----
 
