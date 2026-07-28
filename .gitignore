@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# Virtualenv
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude
+.claude/
+
+# Runtime data — 包含敏感的登录凭证，绝对不能提交！
+data/credentials/
+data/config/accounts.json
+data/config/settings.json
+
+# Logs
+logs/*.log
+
+# OS
+Thumbs.db
+.DS_Store

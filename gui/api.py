@@ -1,0 +1,199 @@
+"""
+pywebview JS-Python 桥接 API。
+
+前端通过 window.pywebview.api.xxx() 调用这些方法。
+所有方法返回 JSON 可序列化的数据（dict / list / str / bool / int）。
+"""
+
+from pathlib import Path
+from datetime import datetime
+from typing import Any
+
+from config.settings import get_settings, Settings
+from core.account_manager import AccountManager, Account
+from core.credential_manager import CredentialManager
+from core.launcher import Launcher
+from core.process_detector import ProcessDetector
+
+from utils.logger import get_logger
+
+logger = get_logger("api")
+
+# 模块级单例，在 main.py 中注入
+settings: Settings = None       # type: ignore[assignment]
+account_mgr: AccountManager = None  # type: ignore[assignment]
+credential_mgr: CredentialManager = None  # type: ignore[assignment]
+launcher: Launcher = None       # type: ignore[assignment]
+
+
+def _acc_to_dict(acc: Account) -> dict[str, Any]:
+    return {
+        "id": acc.id,
+        "name": acc.name,
+        "remark": acc.remark,
+        "has_credentials": acc.has_credentials,
+        "credential_status": acc.credential_status,
+        "last_login": acc.last_login,
+        "is_online": acc.is_online,
+    }
+
+
+# ---- 账号管理 ----
+
+def get_accounts() -> list[dict[str, Any]]:
+    """获取所有账号列表。"""
+    return [_acc_to_dict(a) for a in account_mgr.list_all()]
+
+
+def add_account(name: str, remark: str = "") -> dict[str, Any]:
+    """添加账号。"""
+    acc = account_mgr.add(name, remark)
+    return _acc_to_dict(acc)
+
+
+def delete_account(account_id: str, delete_credentials: bool = False) -> bool:
+    """删除账号。"""
+    if delete_credentials:
+        acc = account_mgr.get(account_id)
+        if acc:
+            credential_mgr.delete_backup(Path(acc.credential_dir))
+    return account_mgr.remove(account_id)
+
+
+def search_accounts(keyword: str) -> list[dict[str, Any]]:
+    """搜索账号。"""
+    return [_acc_to_dict(a) for a in account_mgr.search(keyword)]
+
+
+# ---- 凭证操作 ----
+
+def backup_credentials(account_id: str) -> dict[str, Any]:
+    """备份当前微信的凭证到指定账号。"""
+    acc = account_mgr.get(account_id)
+    if not acc:
+        return {"ok": False, "msg": "账号不存在"}
+    if not ProcessDetector.is_running():
+        return {"ok": False, "msg": "未检测到微信进程，请先在微信中扫码登录"}
+    ok = credential_mgr.backup(Path(acc.credential_dir))
+    if ok:
+        return {"ok": True, "msg": f"「{acc.name}」的凭证已备份，下次启动将免扫码登录"}
+    return {"ok": False, "msg": "备份失败，请确认微信已扫码登录"}
+
+
+# ---- 启动 ----
+
+def launch_account(account_id: str) -> dict[str, Any]:
+    """启动单个账号的微信实例。"""
+    acc = account_mgr.get(account_id)
+    if not acc:
+        return {"ok": False, "msg": "账号不存在"}
+
+    if not ProcessDetector.can_launch():
+        return {"ok": False, "msg": f"同时在线上限为 4 个，当前已有 {ProcessDetector.count()} 个在运行"}
+
+    if acc.has_credentials:
+        if not credential_mgr.switch_to(Path(acc.credential_dir)):
+            return {"ok": False, "msg": "凭证切换失败"}
+    # else: 无凭证也允许启动，用户手动扫码
+
+    proc = launcher.launch_single()
+    if proc:
+        account_mgr.mark_logged_in(acc.id)
+        return {"ok": True, "msg": f"已启动「{acc.name}」"}
+    return {"ok": False, "msg": "启动微信失败，请检查微信路径"}
+
+
+def launch_all() -> dict[str, Any]:
+    """一键启动所有已备份凭证的账号（多开）。"""
+    accounts = account_mgr.list_all()
+    ready = [a for a in accounts if a.has_credentials]
+    if not ready:
+        return {"ok": False, "msg": "没有已备份凭证的账号"}
+
+    slots = ProcessDetector.remaining_slots()
+    if len(ready) > slots:
+        return {"ok": False, "msg": f"已备份 {len(ready)} 个账号，但仅剩 {slots} 个上线名额"}
+
+    def on_before_launch(index: int) -> None:
+        acc = ready[index]
+        credential_mgr.switch_to_symlink(Path(acc.credential_dir))
+
+    procs = launcher.launch_sequential(len(ready), between=on_before_launch)
+    for acc in ready:
+        account_mgr.mark_logged_in(acc.id)
+
+    return {"ok": True, "msg": f"已启动 {len(procs)}/{len(ready)} 个微信实例"}
+
+
+# ---- 进程状态 ----
+
+def get_status() -> dict[str, Any]:
+    """获取当前状态摘要。"""
+    return {
+        "wechat_count": ProcessDetector.count(),
+        "wechat_running": ProcessDetector.is_running(),
+        "remaining_slots": ProcessDetector.remaining_slots(),
+        "can_launch": ProcessDetector.can_launch(),
+        "total_accounts": len(account_mgr.list_all()),
+    }
+
+
+def kill_all_wechat() -> dict[str, Any]:
+    """关闭全部微信进程。"""
+    count = ProcessDetector.count()
+    if count == 0:
+        return {"ok": True, "msg": "当前无微信进程"}
+    killed = ProcessDetector.kill_all()
+    return {"ok": True, "msg": f"已关闭 {killed} 个微信进程"}
+
+
+# ---- 设置 ----
+
+def get_settings_data() -> dict[str, Any]:
+    """获取所有设置项。"""
+    s = settings
+    return {
+        "wechat_exe_path": s.wechat_exe_path,
+        "wechat_data_dir": s.wechat_data_dir,
+        "root_data_dir": s.root_data_dir,
+        "auto_start": s.auto_start,
+        "log_level": s.log_level,
+    }
+
+
+def save_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """保存设置。"""
+    try:
+        if "wechat_exe_path" in data:
+            settings.wechat_exe_path = data["wechat_exe_path"]
+            launcher.exe_path = data["wechat_exe_path"]
+        if "wechat_data_dir" in data:
+            settings.wechat_data_dir = data["wechat_data_dir"]
+            credential_mgr.wechat_config_dir = (
+                Path(data["wechat_data_dir"]) / "xwechat_files" / "all_users" / "config"
+            )
+        if "root_data_dir" in data:
+            settings.root_data_dir = data["root_data_dir"]
+        if "auto_start" in data:
+            settings.auto_start = data["auto_start"]
+        if "log_level" in data:
+            settings.log_level = data["log_level"]
+        settings.save()
+        return {"ok": True, "msg": "设置已保存"}
+    except Exception as e:
+        return {"ok": False, "msg": str(e)}
+
+
+def select_file(title: str, file_types: str = "") -> str | None:
+    """打开文件选择对话框，返回选中路径或 None。"""
+    import tkinter.filedialog as fd
+    import tkinter as tk
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    if file_types:
+        path = fd.askopenfilename(title=title, filetypes=[(file_types, "*.*")])
+    else:
+        path = fd.askdirectory(title=title)
+    root.destroy()
+    return path if path else None
