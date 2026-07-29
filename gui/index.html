@@ -311,6 +311,20 @@
   </div>
 </div>
 
+<!-- delete confirm modal -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <h2>删除账号</h2>
+    <p style="font-size:14px;color:var(--text);line-height:1.6;">
+      确定删除「<strong id="deleteTargetName"></strong>」？<br>
+      <span style="font-size:12px;color:var(--red);">同时会删除对应的凭证备份数据</span>
+    </p>
+    <div class="modal-actions">
+      <button class="btn-text" onclick="closeModal('deleteModal')">取消</button>
+      <button class="btn-login" style="background:#1a1a2e;color:#fff;" onclick="doDeleteAccount()">删除</button>
+    </div>
+  </div>
+</div>
 <!-- add modal -->
 <div class="modal-overlay" id="addModal">
   <div class="modal">
@@ -367,6 +381,7 @@ document.addEventListener('mousemove', () => {
 document.addEventListener('mouseup', () => { dragInfo = null; });
 
 let accounts = [];
+let deleteTargetId = null;
 
 // ——— data ———
 async function refresh() {
@@ -430,11 +445,21 @@ async function backupCredentials(id) {
 }
 async function deleteAccount(id) {
   const a = accounts.find(x => x.id === id);
-  if (!a || !confirm(`删除「${a.display_title || a.name}」？\n确定同时删除凭证备份`)) return;
+  if (!a) return;
+  deleteTargetId = id;
+  document.getElementById("deleteTargetName").innerText = a.display_title || a.name;
+  openModal("deleteModal");
+}
+async function doDeleteAccount() {
+  const id = deleteTargetId;
+  closeModal("deleteModal");
+  deleteTargetId = null;
+  if (!id) return;
   await api.delete_account(id, true);
-  toast(true, '已删除');
+  toast(true, "已删除");
   await refresh();
 }
+
 async function launchAll() {
   const r = await api.launch_all();
   toast(r.ok, r.msg);

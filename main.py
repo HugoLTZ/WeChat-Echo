@@ -145,12 +145,21 @@ def main() -> None:
             b64 = base64.b64encode(p.read_bytes()).decode()
             html_content = html_content.replace(placeholder, f"data:image/png;base64,{b64}")
 
+    # 计算屏幕居中位置
+    screen_w = ctypes.windll.user32.GetSystemMetrics(0)
+    screen_h = ctypes.windll.user32.GetSystemMetrics(1)
+    win_w, win_h = 440, 620
+    x = (screen_w - win_w) // 2
+    y = (screen_h - win_h) // 2
+
     window = webview.create_window(
         title="WeChat-Echo",
         html=html_content,
         js_api=api_obj,
-        width=440,
-        height=620,
+        width=win_w,
+        height=win_h,
+        x=x,
+        y=y,
         frameless=True,
         resizable=False,
         text_select=False,
