@@ -248,17 +248,11 @@ class CredentialManager:
         """
         单账号凭证切换。
 
-        先复制备份到临时目录，再用临时目录创建硬链接到 config。
-        微信回写只会污染临时目录，备份文件保持干净。
+        直接复制备份文件到 config 目录。使用文件复制而非硬链接，
+        避免跨卷硬链接失败（%TEMP% 与微信数据目录可能不在同一盘符）。
+        微信对 config 目录的回写不会污染备份源文件。
         """
-        import tempfile
-        tmp_dir = Path(tempfile.mkdtemp(prefix="wechat_echo_"))
-        for src in source_dir.iterdir():
-            if src.is_file():
-                shutil.copy2(str(src), str(tmp_dir / src.name))
-        return self._do_switch(tmp_dir, prefer_hardlink=True)
-        # 临时目录不清理——硬链接创建后，临时目录条目删除不影响 config
-        # 由系统 temp 目录回收机制处理
+        return self._do_switch(source_dir, use_copy=True)
 
     def switch_to_symlink(self, source_dir: Path) -> bool:
         """
@@ -281,9 +275,10 @@ class CredentialManager:
 
         self._wechat_dir.mkdir(parents=True, exist_ok=True)
 
-        # 先清除目标目录中所有文件
+        # 只清除将被替换的文件（保留 upgrade_v4 等微信自身生成的辅助文件）
+        source_names = {src.name for src in source_dir.iterdir() if src.is_file()}
         for old in list(self._wechat_dir.iterdir()):
-            if old.is_file() or old.is_symlink():
+            if (old.is_file() or old.is_symlink()) and old.name in source_names:
                 self._remove_path(old)
 
         # 复制备份目录中所有文件到 config 目录
@@ -312,6 +307,24 @@ class CredentialManager:
             logger.info("凭证切换成功 (%s) → %s",
                         "硬链接" if prefer_hardlink else "软链接", source_dir)
         return success
+
+    def verify_switch(self, source_dir: Path) -> bool:
+        """验证 config 目录的核心凭证文件内容与备份一致。"""
+        for fname in CRED_FILES:
+            src = source_dir / fname
+            dst = self._wechat_dir / fname
+            if not dst.is_file():
+                logger.error("切换验证失败：目标文件不存在 %s", dst)
+                return False
+            try:
+                if src.read_bytes() != dst.read_bytes():
+                    logger.error("切换验证失败：文件内容不一致 %s", fname)
+                    return False
+            except OSError as e:
+                logger.error("切换验证失败：无法读取 %s: %s", fname, e)
+                return False
+        logger.debug("切换验证通过")
+        return True
 
     @staticmethod
     def _create_copy(source: Path, dest: Path) -> bool:

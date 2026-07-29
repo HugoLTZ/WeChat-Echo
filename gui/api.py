@@ -144,6 +144,9 @@ def launch_account(account_id: str) -> dict[str, Any]:
         if not credential_mgr.switch_to(Path(acc.credential_dir)):
             logger.error("凭证切换失败: %s", acc.id)
             return {"ok": False, "msg": "凭证切换失败"}
+        if not credential_mgr.verify_switch(Path(acc.credential_dir)):
+            logger.error("凭证切换验证失败: %s", acc.id)
+            return {"ok": False, "msg": "凭证切换验证失败，请重新备份凭证"}
 
     proc = launcher.launch_single()
     if proc:
