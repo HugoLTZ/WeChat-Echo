@@ -4,6 +4,7 @@
 负责启动微信进程并实现多开。
 """
 
+import json
 import subprocess
 import threading
 import time
@@ -32,9 +33,14 @@ class Launcher:
     但 FindWindow 找不到已有窗口 → 正常启动。
     """
 
-    def __init__(self, wechat_exe_path: str) -> None:
+    def __init__(self, wechat_exe_path: str, data_dir: str = "") -> None:
         self._exe = wechat_exe_path
         self._account_pids: dict[str, int] = {}  # account_id → 主进程 PID
+        if data_dir:
+            self._pid_file = Path(data_dir) / "pid_map.json"
+        else:
+            self._pid_file = Path("pid_map.json")
+        self._load_pids()
 
     # ---- 属性 ----
 
@@ -61,6 +67,7 @@ class Launcher:
         proc = self._spawn()
         if proc and account_id:
             self._account_pids[account_id] = proc.pid
+            self._save_pids()
             logger.debug("账号 %s 绑定 PID=%d", account_id, proc.pid)
         return proc
 
@@ -135,6 +142,7 @@ class Launcher:
                 logger.debug("启动第 %d/%d 个实例 (PID=%d)", i + 1, count, proc.pid)
                 if account_ids and i < len(account_ids):
                     self._account_pids[account_ids[i]] = proc.pid
+                    self._save_pids()
             # 等当前微信读完凭证文件，再切软链接启动下一个
             if i < count - 1:
                 time.sleep(PER_INSTANCE_DELAY)
@@ -154,6 +162,7 @@ class Launcher:
         pid = self._account_pids.pop(account_id, None)
         if pid is None:
             return False
+        self._save_pids()
         try:
             parent = psutil.Process(pid)
             children = parent.children(recursive=True)
@@ -194,6 +203,8 @@ class Launcher:
         for aid in dead:
             del self._account_pids[aid]
             logger.debug("账号 %s 的进程已退出，清理 PID 映射", aid)
+        if dead:
+            self._save_pids()
         return online
 
     def get_launching_accounts(self) -> set[str]:
@@ -253,6 +264,54 @@ class Launcher:
 
         win32gui.EnumWindows(cb, None)
         return result
+
+    # ---- PID 持久化 ----
+
+    def _save_pids(self) -> None:
+        """将 account_id → pid 映射持久化到 JSON 文件。"""
+        try:
+            self._pid_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._pid_file, "w", encoding="utf-8") as f:
+                json.dump(self._account_pids, f, ensure_ascii=False, indent=2)
+            logger.debug("PID 映射已保存 (%d 条)", len(self._account_pids))
+        except OSError as e:
+            logger.warning("保存 PID 映射失败: %s", e)
+
+    def _load_pids(self) -> None:
+        """
+        从 JSON 文件恢复 PID 映射。
+        仅恢复仍存活且属于微信进程的 PID，已失效的自动丢弃。
+        """
+        if not self._pid_file.is_file():
+            return
+        try:
+            with open(self._pid_file, "r", encoding="utf-8") as f:
+                saved: dict[str, int] = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("加载 PID 映射失败: %s", e)
+            return
+
+        restored = 0
+        for aid, pid in saved.items():
+            try:
+                proc = psutil.Process(pid)
+                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                    logger.debug("恢复 PID 跳过（进程已退出）: %s PID=%d", aid, pid)
+                    continue
+                # 验证进程确实是微信
+                name = proc.name().lower()
+                if "wechat" not in name and "weixin" not in name:
+                    logger.debug("恢复 PID 跳过（非微信进程 %s）: %s PID=%d", name, aid, pid)
+                    continue
+                self._account_pids[aid] = pid
+                restored += 1
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                logger.debug("恢复 PID 跳过（进程不可访问）: %s PID=%d", aid, pid)
+                continue
+
+        if restored:
+            logger.info("已恢复 %d 条 PID 映射", restored)
+            self._save_pids()  # 清理已失效的条目后重新保存
 
     # ---- 内部 ----
 

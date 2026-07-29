@@ -76,7 +76,7 @@ def main() -> None:
     account_mgr.load()
 
     credential_mgr = CredentialManager(settings.wechat_config_dir)
-    launcher = Launcher(settings.wechat_exe_path)
+    launcher = Launcher(settings.wechat_exe_path, str(settings.settings_dir))
     detector = ProcessDetector()
 
     logger.info(
