@@ -5,6 +5,7 @@ pywebview JS-Python 桥接 API。
 所有方法返回 JSON 可序列化的数据（dict / list / str / bool / int）。
 """
 
+import threading
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -24,6 +25,9 @@ settings: Settings = None       # type: ignore[assignment]
 account_mgr: AccountManager = None  # type: ignore[assignment]
 credential_mgr: CredentialManager = None  # type: ignore[assignment]
 launcher: Launcher = None       # type: ignore[assignment]
+
+# 自动备份完成标记，前端检测后刷新列表
+_needs_refresh = False
 
 
 def _acc_to_dict(acc: Account) -> dict[str, Any]:
@@ -143,6 +147,22 @@ def launch_account(account_id: str) -> dict[str, Any]:
     if proc:
         account_mgr.mark_logged_in(acc.id)
         acc.is_online = True  # 标记在线
+
+        # 无凭证时启动后台监控，扫码登录后自动备份
+        if not acc.has_credentials:
+            cred_dir = Path(acc.credential_dir)
+            acc_id = acc.id
+
+            def _auto_backup() -> None:
+                ok = credential_mgr.wait_and_backup(cred_dir, timeout=300, interval=5)
+                if ok:
+                    account_mgr.refresh_wxid(acc_id)
+                    global _needs_refresh
+                    _needs_refresh = True
+
+            threading.Thread(target=_auto_backup, daemon=True).start()
+            return {"ok": True, "msg": f"已启动「{acc.name}」，扫码登录后将自动备份凭证"}
+
         return {"ok": True, "msg": f"已启动「{acc.name}」"}
     return {"ok": False, "msg": "启动微信失败，请检查微信路径"}
 
@@ -225,13 +245,17 @@ def update_wechat_name(account_id: str, wechat_name: str) -> bool:
 
 def get_status() -> dict[str, Any]:
     """获取当前状态摘要。"""
-    return {
+    global _needs_refresh
+    result = {
         "wechat_count": ProcessDetector.count(),
         "wechat_running": ProcessDetector.is_running(),
         "remaining_slots": ProcessDetector.remaining_slots(),
         "can_launch": ProcessDetector.can_launch(),
         "total_accounts": len(account_mgr.list_all()),
+        "needs_refresh": _needs_refresh,
     }
+    _needs_refresh = False  # 已通知前端，重置
+    return result
 
 
 def kill_all_wechat() -> dict[str, Any]:

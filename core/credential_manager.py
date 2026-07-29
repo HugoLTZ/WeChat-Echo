@@ -14,6 +14,7 @@
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -140,6 +141,108 @@ class CredentialManager:
             except OSError as e:
                 logger.debug("头像保存失败: %s", e)
 
+    # ---- 自动监控备份 ----
+
+    def wait_and_backup(self, target_dir: Path, timeout: float = 300.0, interval: float = 5.0) -> bool:
+        """
+        后台轮询监测微信配置目录，扫码登录后自动备份凭证。
+
+        策略：综合三个信号判断「主窗口」——大尺寸 + 可调大小 + 窗口数增加。
+        登录窗口：~370×485，无 WS_SIZEBOX，仅一个
+        主窗口：  尺寸大（宽或高 > 500），有 WS_SIZEBOX
+        启动时记录主窗口数，数量增加 = 登录成功。
+        """
+        logger.info("自动备份监控启动 (间隔: %.0fs, 超时: %.0fs) → %s",
+                    interval, timeout, target_dir)
+
+        initial_count = self._count_main_windows()
+        logger.debug("初始主窗口数: %d", initial_count)
+
+        start = time.monotonic()
+
+        while time.monotonic() - start < timeout:
+            time.sleep(interval)
+
+            if not self._wechat_running():
+                logger.info("微信已退出，做最终备份尝试")
+                if self._try_backup(target_dir):
+                    return True
+                return False
+
+            if not self._files_ready():
+                continue
+
+            current_count = self._count_main_windows()
+            if current_count > initial_count:
+                logger.info("检测到新增主窗口 (%d → %d)，已登录",
+                            initial_count, current_count)
+                time.sleep(1)
+                if self._try_backup(target_dir):
+                    logger.info("自动备份成功 → %s", target_dir)
+                    return True
+
+        logger.info("监控超时 (%ds)", timeout)
+        return False
+
+    @staticmethod
+    def _count_main_windows() -> int:
+        """
+        统计微信「主窗口」数量。
+        主窗口 = 微信窗口 + 可调大小(WS_SIZEBOX) + 尺寸大(宽或高 > 500)。
+        登录窗口不满足后两个条件，不会被计入。
+        """
+        import win32gui
+        GWL_STYLE = -16
+        WS_SIZEBOX = 0x00040000
+        count = 0
+
+        def cb(hwnd: int, _ctx: None) -> bool:
+            nonlocal count
+            if not win32gui.IsWindowVisible(hwnd):
+                return True
+            title = win32gui.GetWindowText(hwnd)
+            cls = win32gui.GetClassName(hwnd)
+            if not (title == "微信" or cls.startswith("Qt5") or "WeChat" in cls):
+                return True
+            # 尺寸：宽或高 > 500（排除登录窗口 ~370×485）
+            rect = win32gui.GetWindowRect(hwnd)
+            w, h = rect[2] - rect[0], rect[3] - rect[1]
+            if w <= 500 and h <= 500:
+                return True
+            # 样式：可调大小
+            style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
+            if style & WS_SIZEBOX:
+                count += 1
+            return True
+
+        win32gui.EnumWindows(cb, None)
+        return count
+
+    def _try_backup(self, target_dir: Path) -> bool:
+        """尝试备份，不抛异常。"""
+        try:
+            return self.backup(target_dir)
+        except Exception as e:
+            logger.debug("备份尝试失败: %s", e)
+            return False
+
+    def _files_ready(self) -> bool:
+        """检查两个凭证文件是否都存在。"""
+        return all((self._wechat_dir / f).is_file() for f in CRED_FILES)
+
+    @staticmethod
+    def _wechat_running() -> bool:
+        """检查是否有微信进程在运行（含登录窗口到主窗口的过渡期）。"""
+        try:
+            from core.process_detector import ProcessDetector
+            # 主检测：可见窗口
+            if ProcessDetector.is_running():
+                return True
+            # 兜底：按进程名检测（扫码登录窗口关闭→主窗口出现的间隙）
+            return len(ProcessDetector.get_all_wechat_processes()) > 0
+        except Exception:
+            return True  # 无法检测时假设仍在运行
+
     # ---- 凭证切换 ----
 
     def switch_to(self, source_dir: Path) -> bool:
@@ -255,16 +358,11 @@ class CredentialManager:
 
     @staticmethod
     def delete_backup(cred_dir: Path) -> bool:
-        """删除账号凭证备份目录。"""
+        """删除账号凭证备份目录（含凭证文件、wxid、头像等全部内容）。"""
         if not cred_dir.is_dir():
             return True
         try:
-            # 先删除文件，再删除目录
-            for fname in CRED_FILES:
-                fpath = cred_dir / fname
-                if fpath.is_file() or fpath.is_symlink():
-                    fpath.unlink()
-            cred_dir.rmdir()
+            shutil.rmtree(str(cred_dir))
             logger.info("已删除凭证目录: %s", cred_dir)
             return True
         except OSError as e:

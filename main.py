@@ -138,6 +138,8 @@ def main() -> None:
         "{{ICON_RUN}}": "run.png",
         "{{ICON_SAVE}}": "save.png",
         "{{ICON_DELETE}}": "delete.png",
+        "{{ICON_MORE}}": "more.png",
+        "{{CHAT_ICON}}": "chat.png",
     }
     for placeholder, filename in icons.items():
         p = assets_dir / filename
