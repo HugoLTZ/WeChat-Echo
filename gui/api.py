@@ -203,14 +203,39 @@ def launch_all() -> dict[str, Any]:
 def refresh_online_status() -> list[str]:
     """
     通过 PID 追踪精确刷新各账号状态：在线 / 启动中 / 离线。
+    同时尝试收养未被追踪的孤儿微信进程。
     返回当前在线的 account_id 列表。
     """
+    # 尝试收养孤儿进程（用户手动启动的微信等）
+    logger.info("当前追踪 PID: %s (%d 条)", dict(launcher._account_pids), len(launcher._account_pids))
+    cred_dirs: dict[str, str] = {}
+    for acc in account_mgr.list_all():
+        if acc.has_credentials and acc.id not in launcher._account_pids:
+            cred_dirs[acc.id] = acc.credential_dir
+    if cred_dirs:
+        logger.info("尝试收养孤儿进程，候选账号: %s", list(cred_dirs.keys()))
+        try:
+            adopted = launcher.adopt_orphan_processes(
+                settings.wechat_data_dir,
+                cred_dirs,
+            )
+            if adopted:
+                logger.info("收养了 %d 个孤儿微信进程", adopted)
+        except Exception:
+            logger.warning("孤儿进程收养失败（非关键路径）", exc_info=True)
+    else:
+        logger.info("无需收养：所有有凭证的账号均已追踪 PID")
+
     online_ids = launcher.get_online_accounts()
     launching_ids = launcher.get_launching_accounts()
     for acc in account_mgr.list_all():
         acc.is_online = acc.id in online_ids
         acc.is_launching = acc.id in launching_ids
-    if ProcessDetector.count() == 0:
+    try:
+        total = ProcessDetector.count()
+    except Exception:
+        total = len(online_ids) + len(launching_ids)  # 回退：用已知 PID 数估算
+    if total == 0:
         for acc in account_mgr.list_all():
             acc.is_online = False
             acc.is_launching = False

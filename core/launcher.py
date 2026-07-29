@@ -4,6 +4,7 @@
 负责启动微信进程并实现多开。
 """
 
+import hashlib
 import json
 import subprocess
 import threading
@@ -152,17 +153,59 @@ class Launcher:
 
     # ---- 进程管理 ----
 
+    @staticmethod
+    def _is_wechat_pid(pid: int) -> bool:
+        """验证 PID 是否仍属于微信进程（防止 PID 被 OS 回收后误判到其他程序）。"""
+        try:
+            proc = psutil.Process(pid)
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                return False
+            name = proc.name().lower()
+            return "wechat" in name or "weixin" in name
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
+
+    @staticmethod
+    def _get_all_wechat_pids() -> set[int]:
+        """通过窗口枚举获取所有微信主进程 PID（高效，不走 psutil.process_iter）。"""
+        try:
+            import win32gui
+            import win32process
+        except ImportError:
+            return set()
+        pids: set[int] = set()
+        def cb(hwnd: int, _ctx: None) -> bool:
+            if not win32gui.IsWindowVisible(hwnd):
+                return True
+            title = win32gui.GetWindowText(hwnd)
+            cls = win32gui.GetClassName(hwnd)
+            if not (title == "微信" or cls.startswith("Qt5") or "WeChat" in cls):
+                return True
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            if pid:
+                pids.add(pid)
+            return True
+        try:
+            win32gui.EnumWindows(cb, None)
+        except Exception:
+            logger.debug("EnumWindows 异常")
+        return pids
+
     def kill_account(self, account_id: str) -> bool:
         """
         终止指定账号的微信进程树（主进程 + 所有子进程）。
 
-        Returns:
-            是否成功终止（或进程已不存在）。
+        安全措施：先验证 PID 是否仍属于微信进程再 kill，
+        防止 PID 被 OS 回收给其他程序后误杀无辜进程。
         """
         pid = self._account_pids.pop(account_id, None)
         if pid is None:
             return False
         self._save_pids()
+        # 关键校验：PID 可能已被回收给其他程序
+        if not self._is_wechat_pid(pid):
+            logger.warning("账号 %s 的 PID=%d 已不属于微信进程（被 OS 回收），跳过 kill", account_id, pid)
+            return True
         try:
             parent = psutil.Process(pid)
             children = parent.children(recursive=True)
@@ -184,25 +227,22 @@ class Launcher:
         返回真正在线的账号 ID 集合（PID 存活 且 有主窗口）。
         仅进程存活但无主窗口的不算在线（仍在扫码等待中）。
 
-        会清理已死亡的 PID 映射。
+        会清理已死亡或 PID 被 OS 回收的映射。
         """
         online: set[str] = set()
         dead: list[str] = []
         for aid, pid in self._account_pids.items():
             try:
-                proc = psutil.Process(pid)
-                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                if not self._is_wechat_pid(pid):
                     dead.append(aid)
                     continue
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                dead.append(aid)
-                continue
-            # 进程存活，检查是否有主窗口（非登录窗口）
-            if self._pid_has_main_window(pid):
-                online.add(aid)
+                if self._pid_has_main_window(pid):
+                    online.add(aid)
+            except Exception:
+                logger.debug("账号 %s PID=%d 状态检测异常，跳过", aid, pid)
         for aid in dead:
             del self._account_pids[aid]
-            logger.debug("账号 %s 的进程已退出，清理 PID 映射", aid)
+            logger.debug("账号 %s 的进程已退出或 PID 被回收，清理映射", aid)
         if dead:
             self._save_pids()
         return online
@@ -215,12 +255,12 @@ class Launcher:
         launching: set[str] = set()
         for aid, pid in self._account_pids.items():
             try:
-                proc = psutil.Process(pid)
-                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
-                    if not self._pid_has_main_window(pid):
-                        launching.add(aid)
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+                if not self._is_wechat_pid(pid):
+                    continue
+                if not self._pid_has_main_window(pid):
+                    launching.add(aid)
+            except Exception:
+                logger.debug("账号 %s PID=%d 启动检测异常，跳过", aid, pid)
         return launching
 
     @staticmethod
@@ -262,8 +302,107 @@ class Launcher:
                 pass
             return True
 
-        win32gui.EnumWindows(cb, None)
+        try:
+            win32gui.EnumWindows(cb, None)
+        except Exception:
+            logger.debug("EnumWindows 异常 (PID=%d)，返回当前检测结果=%s", pid, result)
         return result
+
+    # ---- 孤儿进程收养 ----
+
+    def adopt_orphan_processes(self, wechat_data_dir: str, account_cred_dirs: dict[str, str]) -> int:
+        """
+        通过头像比对匹配孤儿微信进程到账号。
+
+        策略：
+        1. 扫描 xwechat_files/all_users/head_imgs/ 下所有头像文件
+        2. 与各账号备份的 avatar.jpg 做 MD5 比对
+        3. 头像匹配 + 有孤儿主窗口 PID → 收养
+
+        相比 global_config hash 的优势：每个账号头像唯一，不受 config 目录
+        被多实例覆盖的影响。
+
+        Args:
+            wechat_data_dir: 微信数据根目录（即 xwechat_files 的父目录）
+            account_cred_dirs: {account_id: credential_backup_dir} 映射。
+
+        Returns:
+            成功收养的进程数。
+        """
+        all_pids = self._get_all_wechat_pids()
+        tracked = set(self._account_pids.values())
+        orphans = all_pids - tracked
+        logger.info("孤儿检测: 全部微信PID=%s 已追踪=%s 孤儿=%s", all_pids, tracked, orphans)
+        if not orphans:
+            return 0
+
+        # 收集有主窗口的孤儿 PID
+        orphan_pids: list[int] = []
+        for pid in orphans:
+            try:
+                if self._pid_has_main_window(pid):
+                    orphan_pids.append(pid)
+                    logger.info("孤儿 PID=%d 主窗口=True", pid)
+                else:
+                    logger.info("孤儿 PID=%d 主窗口=False（登录界面，跳过）", pid)
+            except Exception:
+                logger.debug("孤儿 PID=%d 窗口检测失败，跳过", pid)
+
+        if not orphan_pids:
+            logger.info("无可收养的孤儿进程（均无主窗口）")
+            return 0
+
+        # 扫描微信头像目录，收集当前活跃头像的 MD5
+        head_imgs_dir = Path(wechat_data_dir) / "xwechat_files" / "all_users" / "head_imgs"
+        active_avatars: set[str] = set()  # MD5 hex 集合
+        if head_imgs_dir.is_dir():
+            for d in head_imgs_dir.iterdir():
+                if d.is_dir():
+                    for f in d.iterdir():
+                        if f.is_file():
+                            try:
+                                active_avatars.add(hashlib.md5(f.read_bytes()).hexdigest())
+                            except OSError:
+                                pass
+        logger.info("头像目录 %s → 找到 %d 个头像文件", head_imgs_dir, len(active_avatars))
+
+        if not active_avatars:
+            logger.info("微信头像目录无头像文件，无法匹配")
+            return 0
+
+        # 为每个账号计算其备份头像的 MD5
+        account_avatars: dict[str, str] = {}  # account_id → avatar_md5
+        for aid, cred_dir in account_cred_dirs.items():
+            avatar = Path(cred_dir) / "avatar.jpg"
+            if avatar.is_file():
+                try:
+                    account_avatars[aid] = hashlib.md5(avatar.read_bytes()).hexdigest()
+                except OSError:
+                    pass
+
+        if not account_avatars:
+            logger.info("无账号有备份头像，无法匹配")
+            return 0
+
+        # 匹配：头像 MD5 一致 + 有孤儿 PID → 收养
+        adopted = 0
+        remaining_pids = list(orphan_pids)
+        for aid, avatar_hash in account_avatars.items():
+            if aid in self._account_pids:
+                continue
+            if avatar_hash in active_avatars:
+                if remaining_pids:
+                    pid = remaining_pids.pop(0)
+                    self._account_pids[aid] = pid
+                    self._save_pids()
+                    logger.info("收养孤儿进程 PID=%d → 账号 %s (头像匹配)", pid, aid)
+                    adopted += 1
+                else:
+                    logger.info("账号 %s 头像匹配但无剩余孤儿 PID", aid)
+            else:
+                logger.info("账号 %s 头像未匹配 (hash=%s)", aid, avatar_hash[:8])
+
+        return adopted
 
     # ---- PID 持久化 ----
 
@@ -283,6 +422,7 @@ class Launcher:
         仅恢复仍存活且属于微信进程的 PID，已失效的自动丢弃。
         """
         if not self._pid_file.is_file():
+            logger.debug("PID 映射文件不存在，跳过恢复: %s", self._pid_file)
             return
         try:
             with open(self._pid_file, "r", encoding="utf-8") as f:
@@ -291,23 +431,14 @@ class Launcher:
             logger.warning("加载 PID 映射失败: %s", e)
             return
 
+        logger.info("PID 映射文件中有 %d 条记录，开始验证...", len(saved))
         restored = 0
         for aid, pid in saved.items():
-            try:
-                proc = psutil.Process(pid)
-                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
-                    logger.debug("恢复 PID 跳过（进程已退出）: %s PID=%d", aid, pid)
-                    continue
-                # 验证进程确实是微信
-                name = proc.name().lower()
-                if "wechat" not in name and "weixin" not in name:
-                    logger.debug("恢复 PID 跳过（非微信进程 %s）: %s PID=%d", name, aid, pid)
-                    continue
-                self._account_pids[aid] = pid
-                restored += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                logger.debug("恢复 PID 跳过（进程不可访问）: %s PID=%d", aid, pid)
+            if not self._is_wechat_pid(pid):
+                logger.debug("恢复 PID 跳过: %s PID=%d", aid, pid)
                 continue
+            self._account_pids[aid] = pid
+            restored += 1
 
         if restored:
             logger.info("已恢复 %d 条 PID 映射", restored)
