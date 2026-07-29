@@ -263,7 +263,7 @@ class CredentialManager:
         """
         return self._do_switch(source_dir, prefer_hardlink=False)
 
-    def _do_switch(self, source_dir: Path, *, prefer_hardlink: bool, use_copy: bool = False) -> bool:
+    def _do_switch(self, source_dir: Path, *, prefer_hardlink: bool = False, use_copy: bool = False) -> bool:
         if not source_dir.is_dir():
             logger.error("凭证源目录不存在: %s", source_dir)
             return False

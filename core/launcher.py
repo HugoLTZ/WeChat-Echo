@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+import psutil
+
 from utils.logger import get_logger
 
 logger = get_logger("launcher")
@@ -32,7 +34,7 @@ class Launcher:
 
     def __init__(self, wechat_exe_path: str) -> None:
         self._exe = wechat_exe_path
-        self._processes: list[subprocess.Popen] = []
+        self._account_pids: dict[str, int] = {}  # account_id → 主进程 PID
 
     # ---- 属性 ----
 
@@ -46,14 +48,21 @@ class Launcher:
 
     # ---- 启动 ----
 
-    def launch_single(self) -> Optional[subprocess.Popen]:
+    def launch_single(self, account_id: str = "") -> Optional[subprocess.Popen]:
         """
-        启动单个微信实例。
+        启动单个微信实例，追踪 PID 以支持在线状态检测和单独关闭。
+
+        Args:
+            account_id: 关联的账号 ID，用于后续追踪和单独关闭。
 
         Returns:
             Popen 对象，若失败则返回 None。
         """
-        return self._spawn()
+        proc = self._spawn()
+        if proc and account_id:
+            self._account_pids[account_id] = proc.pid
+            logger.debug("账号 %s 绑定 PID=%d", account_id, proc.pid)
+        return proc
 
     def launch_multi(self, count: int, on_each: Optional[Callable[[int], None]] = None) -> list[subprocess.Popen]:
         """
@@ -88,7 +97,12 @@ class Launcher:
         logger.info("多开完成：尝试 %d，成功 %d", count, len(launched))
         return launched
 
-    def launch_sequential(self, count: int, between: Optional[Callable[[int], None]] = None) -> list[subprocess.Popen]:
+    def launch_sequential(
+        self,
+        count: int,
+        between: Optional[Callable[[int], None]] = None,
+        account_ids: Optional[list[str]] = None,
+    ) -> list[subprocess.Popen]:
         """
         顺序启动多个微信实例，使用软链接实现凭证隔离。
 
@@ -104,6 +118,7 @@ class Launcher:
         Args:
             count: 要启动的实例数量。
             between: 每次启动前的回调，参数为序号（0-based）。
+            account_ids: 可选，与 count 等长的账号 ID 列表，用于 PID 追踪。
 
         Returns:
             成功启动的 Popen 对象列表。
@@ -118,12 +133,64 @@ class Launcher:
             if proc:
                 launched.append(proc)
                 logger.debug("启动第 %d/%d 个实例 (PID=%d)", i + 1, count, proc.pid)
+                if account_ids and i < len(account_ids):
+                    self._account_pids[account_ids[i]] = proc.pid
             # 等当前微信读完凭证文件，再切软链接启动下一个
             if i < count - 1:
                 time.sleep(PER_INSTANCE_DELAY)
 
         logger.info("批量启动完成：成功 %d/%d", len(launched), count)
         return launched
+
+    # ---- 进程管理 ----
+
+    def kill_account(self, account_id: str) -> bool:
+        """
+        终止指定账号的微信进程树（主进程 + 所有子进程）。
+
+        Returns:
+            是否成功终止（或进程已不存在）。
+        """
+        pid = self._account_pids.pop(account_id, None)
+        if pid is None:
+            return False
+        try:
+            parent = psutil.Process(pid)
+            children = parent.children(recursive=True)
+            for child in children:
+                child.kill()
+            parent.kill()
+            psutil.wait_procs([parent] + children, timeout=5)
+            logger.info("已终止账号 %s 的进程树 (PID=%d, 子进程=%d)", account_id, pid, len(children))
+            return True
+        except psutil.NoSuchProcess:
+            logger.debug("账号 %s 的进程 PID=%d 已退出", account_id, pid)
+            return True
+        except psutil.AccessDenied:
+            logger.warning("无法终止账号 %s 的进程 PID=%d (权限不足)", account_id, pid)
+            return False
+
+    def get_online_accounts(self) -> set[str]:
+        """
+        返回当前在线的账号 ID 集合（PID 仍存活的）。
+
+        会清理已死亡的 PID 映射。
+        """
+        online: set[str] = set()
+        dead: list[str] = []
+        for aid, pid in self._account_pids.items():
+            try:
+                proc = psutil.Process(pid)
+                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                    online.add(aid)
+                    continue
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            dead.append(aid)
+        for aid in dead:
+            del self._account_pids[aid]
+            logger.debug("账号 %s 的进程已退出，清理 PID 映射", aid)
+        return online
 
     # ---- 内部 ----
 

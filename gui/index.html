@@ -100,6 +100,9 @@
     box-shadow: var(--shadow-md);
     border-color: rgba(0,0,0,.06);
   }
+  .card.online {
+    border-left: 3px solid var(--green);
+  }
 
   .dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
@@ -402,9 +405,8 @@ async function refresh() {
 }
 async function refreshStatus() {
   try {
-    const s = await api.get_status();
     await api.refresh_online_status();
-    if (s.wechat_count === 0 || s.needs_refresh) await refresh();
+    await refresh();
   } catch(e) {}
 }
 
@@ -418,19 +420,28 @@ function render(filtered) {
   }
   c.innerHTML = list.map(a => {
     const last = a.last_login_text ? `上次登录 · ${a.last_login_text}` : '从未登录';
+    const subtitle = a.is_online
+      ? '<span style="color:var(--green)">● 在线</span>'
+      : `${last}${a.has_credentials ? '' : '  ·  请先备份凭证'}`;
 
     const avatar = a.avatar_base64
       ? `<img src="${a.avatar_base64}" onerror="this.style.display='none';this.nextSibling.style.display='flex'" alt=""><span style="display:none">${esc(a.display_title).charAt(0)}</span>`
       : `<span>${(a.display_title || a.name).charAt(0)}</span>`;
 
-    return `<div class="card" ${a.has_credentials ? '' : `onclick="launchAccount('${a.id}')"`} style="${a.has_credentials ? '' : 'cursor:pointer'}">
+    const actionBtn = a.is_online
+      ? `<button class="btn-icon" onclick="event.stopPropagation();killAccount('${a.id}')" title="关闭微信"><img src="{{CLOSE_ICON}}" alt=""></button>`
+      : `<button class="btn-icon" onclick="event.stopPropagation();launchAccount('${a.id}')" title="启动"><img src="{{ICON_RUN}}" alt=""></button>`;
+
+    return `<div class="card${a.is_online ? ' online' : ''}"${a.is_online ? '' : ` onclick="launchAccount('${a.id}')" style="cursor:pointer"`}>
+      <div class="dot${a.is_online ? ' online' : ' offline'}"></div>
       <div class="avatar">${avatar}</div>
       <div class="info">
         <div class="title" onclick="event.stopPropagation();editWechatName('${a.id}')">${esc(a.display_title)}<span class="edit-hint">✎</span></div>
-        <div class="sub">${last}${a.has_credentials ? '' : '  ·  请先备份凭证'}</div>
+        <div class="sub">${subtitle}</div>
       </div>
       <div class="actions-wrap">
         <div class="card-actions">
+          ${actionBtn}
           <button class="btn-icon" onclick="event.stopPropagation();deleteAccount('${a.id}')" title="删除">
             <img src="{{ICON_DELETE}}" alt="">
           </button>
@@ -469,6 +480,11 @@ async function doDeleteAccount() {
 
 async function launchAll() {
   const r = await api.launch_all();
+  toast(r.ok, r.msg);
+  await refresh();
+}
+async function killAccount(id) {
+  const r = await api.kill_account(id);
   toast(r.ok, r.msg);
   await refresh();
 }

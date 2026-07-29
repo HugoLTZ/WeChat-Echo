@@ -109,6 +109,7 @@ def main() -> None:
         api.get_status,
         api.refresh_online_status,
         api.kill_all_wechat,
+        api.kill_account,
         api.get_settings_data,
         api.save_settings,
         api.select_file,
