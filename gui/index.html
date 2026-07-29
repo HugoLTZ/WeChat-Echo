@@ -79,11 +79,28 @@
   /* empty ————————————————————————— */
   .empty-state {
     flex:1; display: flex; flex-direction: column; align-items: center;
-    justify-content: center; padding: 80px 20px; gap: 12px;
+    justify-content: center; padding: 60px 20px; gap: 0;
   }
-  .empty-icon { font-size: 44px; opacity: .35; }
-  .empty-title { font-size: 16px; font-weight: 600; color: var(--text); }
-  .empty-desc { font-size: 13px; color: var(--secondary); text-align: center; line-height: 1.7; }
+  .empty-icon-wrap {
+    width: 96px; height: 96px; border-radius: 50%;
+    background: linear-gradient(135deg, #1a1a2e0d, #1a1a2e12);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+  }
+  .empty-icon-svg { width: 48px; height: 48px; opacity: .55; }
+  .empty-title { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -.3px; }
+  .empty-desc {
+    font-size: 13px; color: var(--secondary); text-align: center;
+    line-height: 1.7; margin-top: 6px; max-width: 260px;
+  }
+  .empty-btn {
+    margin-top: 22px; padding: 10px 32px; border-radius: 100px; border: none;
+    font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+    letter-spacing: -.2px; background: var(--accent); color: #fff;
+    box-shadow: 0 2px 8px rgba(0,113,227,.25);
+    transition: all .2s ease;
+  }
+  .empty-btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,113,227,.35); }
 
   /* card ————————————————————————— */
   .card {
@@ -282,9 +299,16 @@
 <!-- list -->
 <div class="main" id="accountList">
   <div class="empty-state">
-    <div class="empty-icon">􀈷</div>
-    <div class="empty-title">暂无账号</div>
-    <div class="empty-desc">点击下方添加账号，<br>首次使用请先在微信中扫码登录后备份凭证</div>
+    <div class="empty-icon-wrap">
+      <svg class="empty-icon-svg" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M16 20h16M16 28h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        <rect x="5" y="7" width="38" height="28" rx="7" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M14 39l5-8h16a7 7 0 007-7V17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="empty-title">还没有账号</div>
+    <div class="empty-desc">添加微信账号并备份凭证，<br>一次扫码永久复用</div>
+    <button class="empty-btn" onclick="openAddAccount()">＋ 添加账号</button>
   </div>
 </div>
 
@@ -400,7 +424,18 @@ function render(filtered) {
   const list = filtered || accounts;
   const c = document.getElementById('accountList');
   if (!list.length) {
-    c.innerHTML = '<div class="empty-state"><div class="empty-icon">􀈷</div><div class="empty-title">暂无账号</div><div class="empty-desc">点击下方添加账号，<br>首次使用请先在微信中扫码登录后备份凭证</div></div>';
+    c.innerHTML = `<div class="empty-state">
+      <div class="empty-icon-wrap">
+        <svg class="empty-icon-svg" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M16 20h16M16 28h10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <rect x="5" y="7" width="38" height="28" rx="7" stroke="currentColor" stroke-width="2.5"/>
+          <path d="M14 39l5-8h16a7 7 0 007-7V17" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="empty-title">还没有账号</div>
+      <div class="empty-desc">添加微信账号并备份凭证，<br>一次扫码永久复用</div>
+      <button class="empty-btn" onclick="openAddAccount()">＋ 添加账号</button>
+    </div>`;
     return;
   }
   c.innerHTML = list.map(a => {
