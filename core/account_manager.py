@@ -38,8 +38,18 @@ class Account:
         self.wxid: str = wxid
         self.wechat_name: str = wechat_name
         self._online: bool = False
+        self._launching: bool = False
 
     # ---- computed ----
+
+    @property
+    def is_launching(self) -> bool:
+        """进程已启动但尚未出现主窗口（可能还在扫码）。"""
+        return self._launching
+
+    @is_launching.setter
+    def is_launching(self, v: bool) -> None:
+        self._launching = v
 
     @property
     def is_online(self) -> bool:

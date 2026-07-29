@@ -47,6 +47,7 @@ def _acc_to_dict(acc: Account) -> dict[str, Any]:
         "last_login": acc.last_login,
         "last_login_text": _format_last_login(acc.last_login),
         "is_online": acc.is_online,
+        "is_launching": acc.is_launching,
     }
 
 
@@ -201,17 +202,18 @@ def launch_all() -> dict[str, Any]:
 
 def refresh_online_status() -> list[str]:
     """
-    通过 PID 追踪精确刷新各账号在线状态。
+    通过 PID 追踪精确刷新各账号状态：在线 / 启动中 / 离线。
     返回当前在线的 account_id 列表。
     """
     online_ids = launcher.get_online_accounts()
+    launching_ids = launcher.get_launching_accounts()
     for acc in account_mgr.list_all():
         acc.is_online = acc.id in online_ids
-    # 兜底：如果窗口枚举数=0 但 PID 追踪还有（极少见的漂移），以 PID 追踪为准
-    # 如果 PID 追踪全空但窗口数>0（用户手动启动的微信），也标记全离线
+        acc.is_launching = acc.id in launching_ids
     if ProcessDetector.count() == 0:
         for acc in account_mgr.list_all():
             acc.is_online = False
+            acc.is_launching = False
         return []
     return list(online_ids)
 

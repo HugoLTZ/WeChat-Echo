@@ -172,7 +172,8 @@ class Launcher:
 
     def get_online_accounts(self) -> set[str]:
         """
-        返回当前在线的账号 ID 集合（PID 仍存活的）。
+        返回真正在线的账号 ID 集合（PID 存活 且 有主窗口）。
+        仅进程存活但无主窗口的不算在线（仍在扫码等待中）。
 
         会清理已死亡的 PID 映射。
         """
@@ -181,16 +182,77 @@ class Launcher:
         for aid, pid in self._account_pids.items():
             try:
                 proc = psutil.Process(pid)
-                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
-                    online.add(aid)
+                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                    dead.append(aid)
                     continue
             except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-            dead.append(aid)
+                dead.append(aid)
+                continue
+            # 进程存活，检查是否有主窗口（非登录窗口）
+            if self._pid_has_main_window(pid):
+                online.add(aid)
         for aid in dead:
             del self._account_pids[aid]
             logger.debug("账号 %s 的进程已退出，清理 PID 映射", aid)
         return online
+
+    def get_launching_accounts(self) -> set[str]:
+        """
+        返回「启动中」的账号 ID 集合（PID 存活 但 尚无主窗口）。
+        这些账号的微信进程在运行但可能还在扫码界面。
+        """
+        launching: set[str] = set()
+        for aid, pid in self._account_pids.items():
+            try:
+                proc = psutil.Process(pid)
+                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
+                    if not self._pid_has_main_window(pid):
+                        launching.add(aid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+        return launching
+
+    @staticmethod
+    def _pid_has_main_window(pid: int) -> bool:
+        """检查指定 PID 是否有微信主窗口（大尺寸 + 可调大小，非登录窗口）。"""
+        try:
+            import win32gui
+            import win32process
+        except ImportError:
+            return True  # 无法检测时乐观认为在线
+
+        GWL_STYLE = -16
+        WS_SIZEBOX = 0x00040000
+        result = False
+
+        def cb(hwnd: int, _ctx: None) -> bool:
+            nonlocal result
+            if result:
+                return False
+            try:
+                if not win32gui.IsWindowVisible(hwnd):
+                    return True
+                _, wpid = win32process.GetWindowThreadProcessId(hwnd)
+                if wpid != pid:
+                    return True
+                title = win32gui.GetWindowText(hwnd)
+                cls = win32gui.GetClassName(hwnd)
+                if not (title == "微信" or cls.startswith("Qt5") or "WeChat" in cls):
+                    return True
+                rect = win32gui.GetWindowRect(hwnd)
+                w, h = rect[2] - rect[0], rect[3] - rect[1]
+                if w <= 500 and h <= 500:
+                    return True  # 登录窗口，跳过
+                style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
+                if style & WS_SIZEBOX:
+                    result = True
+                    return False
+            except Exception:
+                pass
+            return True
+
+        win32gui.EnumWindows(cb, None)
+        return result
 
     # ---- 内部 ----
 

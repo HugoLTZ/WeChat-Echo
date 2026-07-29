@@ -103,6 +103,9 @@
   .card.online {
     border-left: 3px solid var(--green);
   }
+  .card.launching {
+    border-left: 3px solid var(--orange);
+  }
 
   .dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
@@ -420,20 +423,33 @@ function render(filtered) {
   }
   c.innerHTML = list.map(a => {
     const last = a.last_login_text ? `上次登录 · ${a.last_login_text}` : '从未登录';
-    const subtitle = a.is_online
-      ? '<span style="color:var(--green)">● 在线</span>'
-      : `${last}${a.has_credentials ? '' : '  ·  请先备份凭证'}`;
+    let subtitle, cardClass, clickable;
+    if (a.is_online) {
+      subtitle = '<span style="color:var(--green)">● 在线</span>';
+      cardClass = ' online';
+      clickable = '';
+    } else if (a.is_launching) {
+      subtitle = '<span style="color:var(--orange)">● 等待登录</span>';
+      cardClass = ' launching';
+      clickable = '';
+    } else {
+      subtitle = `${last}${a.has_credentials ? '' : '  ·  请先备份凭证'}`;
+      cardClass = '';
+      clickable = ` onclick="launchAccount('${a.id}')" style="cursor:pointer"`;
+    }
 
     const avatar = a.avatar_base64
       ? `<img src="${a.avatar_base64}" onerror="this.style.display='none';this.nextSibling.style.display='flex'" alt=""><span style="display:none">${esc(a.display_title).charAt(0)}</span>`
       : `<span>${(a.display_title || a.name).charAt(0)}</span>`;
 
-    const actionBtn = a.is_online
+    const running = a.is_online || a.is_launching;
+    const actionBtn = running
       ? `<button class="btn-icon" onclick="event.stopPropagation();killAccount('${a.id}')" title="关闭微信"><img src="{{CLOSE_ICON}}" alt=""></button>`
       : `<button class="btn-icon" onclick="event.stopPropagation();launchAccount('${a.id}')" title="启动"><img src="{{ICON_RUN}}" alt=""></button>`;
+    const dotClass = a.is_online ? ' online' : (a.is_launching ? '' : ' offline');
 
-    return `<div class="card${a.is_online ? ' online' : ''}"${a.is_online ? '' : ` onclick="launchAccount('${a.id}')" style="cursor:pointer"`}>
-      <div class="dot${a.is_online ? ' online' : ' offline'}"></div>
+    return `<div class="card${cardClass}"${clickable}>
+      <div class="dot${dotClass}"></div>
       <div class="avatar">${avatar}</div>
       <div class="info">
         <div class="title" onclick="event.stopPropagation();editWechatName('${a.id}')">${esc(a.display_title)}<span class="edit-hint">✎</span></div>
