@@ -115,6 +115,7 @@ def main() -> None:
         api.update_wechat_name,
         api.move_window_by,
         api.close_window,
+        api.export_logs,
     ]
 
     class Api:

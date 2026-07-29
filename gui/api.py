@@ -137,21 +137,23 @@ def launch_account(account_id: str) -> dict[str, Any]:
         return {"ok": False, "msg": "账号不存在"}
 
     if not ProcessDetector.can_launch():
+        logger.warning("启动失败：已达同时在线上限 (%d/4)", ProcessDetector.count())
         return {"ok": False, "msg": f"同时在线上限为 4 个，当前已有 {ProcessDetector.count()} 个在运行"}
 
     if acc.has_credentials:
         if not credential_mgr.switch_to(Path(acc.credential_dir)):
+            logger.error("凭证切换失败: %s", acc.id)
             return {"ok": False, "msg": "凭证切换失败"}
 
     proc = launcher.launch_single()
     if proc:
         account_mgr.mark_logged_in(acc.id)
-        acc.is_online = True  # 标记在线
+        acc.is_online = True
 
-        # 无凭证时启动后台监控，扫码登录后自动备份
         if not acc.has_credentials:
             cred_dir = Path(acc.credential_dir)
             acc_id = acc.id
+            logger.info("启动无凭证账号「%s」，开始自动备份监控", acc.name)
 
             def _auto_backup() -> None:
                 ok = credential_mgr.wait_and_backup(cred_dir, timeout=300, interval=5)
@@ -163,7 +165,10 @@ def launch_account(account_id: str) -> dict[str, Any]:
             threading.Thread(target=_auto_backup, daemon=True).start()
             return {"ok": True, "msg": f"已启动「{acc.name}」，扫码登录后将自动备份凭证"}
 
+        logger.info("已启动「%s」", acc.name)
         return {"ok": True, "msg": f"已启动「{acc.name}」"}
+
+    logger.error("启动微信失败: %s", settings.wechat_exe_path)
     return {"ok": False, "msg": "启动微信失败，请检查微信路径"}
 
 
@@ -171,6 +176,8 @@ def launch_all() -> dict[str, Any]:
     """一键启动所有已备份凭证的账号（多开）。"""
     accounts = account_mgr.list_all()
     ready = [a for a in accounts if a.has_credentials]
+    # 按凭证更新时间从旧到新排序（先注册的账号先启动）
+    ready.sort(key=lambda a: a.last_login or "")
     if not ready:
         return {"ok": False, "msg": "没有已备份凭证的账号"}
 
@@ -212,28 +219,6 @@ def refresh_online_status() -> list[str]:
     # （无法精确区分哪个进程属于哪个账号）
     currently_online = [a.id for a in account_mgr.list_all() if a.is_online]
     return currently_online
-
-
-def launch_all() -> dict[str, Any]:
-    """一键启动所有已备份凭证的账号（多开）。"""
-    accounts = account_mgr.list_all()
-    ready = [a for a in accounts if a.has_credentials]
-    if not ready:
-        return {"ok": False, "msg": "没有已备份凭证的账号"}
-
-    slots = ProcessDetector.remaining_slots()
-    if len(ready) > slots:
-        return {"ok": False, "msg": f"已备份 {len(ready)} 个账号，但仅剩 {slots} 个上线名额"}
-
-    def on_before_launch(index: int) -> None:
-        acc = ready[index]
-        credential_mgr.switch_to_symlink(Path(acc.credential_dir))
-
-    procs = launcher.launch_sequential(len(ready), between=on_before_launch)
-    for acc in ready:
-        account_mgr.mark_logged_in(acc.id)
-
-    return {"ok": True, "msg": f"已启动 {len(procs)}/{len(ready)} 个微信实例"}
 
 
 # ---- 进程状态 ----
@@ -299,9 +284,51 @@ def save_settings(data: dict[str, Any]) -> dict[str, Any]:
         if "log_level" in data:
             settings.log_level = data["log_level"]
         settings.save()
+        logger.info("设置已更新")
         return {"ok": True, "msg": "设置已保存"}
     except Exception as e:
+        logger.error("保存设置失败: %s", e)
         return {"ok": False, "msg": str(e)}
+
+
+def export_logs() -> dict[str, Any]:
+    """导出日志文件为 zip 压缩包。"""
+    import tkinter.filedialog as fd
+    import tkinter as tk
+    import zipfile
+    from datetime import datetime
+
+    log_dir = Path(settings.root_data_dir) / "logs"
+    if not log_dir.is_dir():
+        return {"ok": False, "msg": "日志目录不存在"}
+
+    log_files = sorted(log_dir.glob("app.log*"))
+    if not log_files:
+        return {"ok": False, "msg": "没有日志文件可导出"}
+
+    # 打开保存对话框
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    default_name = f"WeChat-Echo-logs-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    path = fd.asksaveasfilename(
+        title="导出日志",
+        defaultextension=".zip",
+        filetypes=[("ZIP 压缩包", "*.zip")],
+        initialfile=default_name,
+    )
+    root.destroy()
+    if not path:
+        return {"ok": False, "msg": "已取消"}
+
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in log_files:
+                zf.write(f, f.name)
+        logger.info("日志已导出: %s (%d 个文件)", path, len(log_files))
+        return {"ok": True, "msg": f"已导出 {len(log_files)} 个日志文件"}
+    except OSError as e:
+        return {"ok": False, "msg": f"导出失败: {e}"}
 
 
 _win_pos: tuple[int, int] = (0, 0)

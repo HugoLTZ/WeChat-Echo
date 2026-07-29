@@ -11,6 +11,7 @@
 不能直接复制替换文件。
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ from utils.logger import get_logger
 
 logger = get_logger("credential_manager")
 
-# 微信 4.x 凭证文件名
+# 微信 4.x 核心凭证文件名（用于快速检测）
 CRED_FILES = ["global_config", "global_config.crc"]
 
 
@@ -52,7 +53,7 @@ class CredentialManager:
 
     def backup(self, target_dir: Path) -> bool:
         """
-        将微信当前使用的凭证备份到指定目录，
+        将微信 config 目录全部内容备份到指定目录，
         同时自动检测并保存 wxid 和头像。
 
         Args:
@@ -68,78 +69,75 @@ class CredentialManager:
         target_dir.mkdir(parents=True, exist_ok=True)
         success = True
 
-        for fname in CRED_FILES:
-            src = self._wechat_dir / fname
-            dst = target_dir / fname
-            if src.is_file():
-                try:
-                    shutil.copy2(src, dst)
-                    logger.debug("备份凭证文件: %s → %s", src, dst)
-                except OSError as e:
-                    logger.error("备份失败 %s: %s", fname, e)
-                    success = False
-            else:
-                logger.warning("凭证文件不存在: %s", src)
+        for src in self._wechat_dir.iterdir():
+            if not src.is_file():
+                continue
+            dst = target_dir / src.name
+            try:
+                shutil.copy2(str(src), str(dst))
+                # 诊断：记录文件 hash
+                h = hashlib.md5(src.read_bytes()).hexdigest()[:8]
+                logger.info("[备份] %s size=%d hash=%s → %s", src.name, src.stat().st_size, h, dst)
+            except OSError as e:
+                logger.error("备份失败 %s: %s", src.name, e)
                 success = False
 
-        # 自动检测并保存 wxid 和头像
-        if success:
-            self._detect_and_save_user_info(target_dir)
+        if not success:
+            return False
 
-        if success:
-            logger.info("凭证备份成功 → %s", target_dir)
-        return success
+        self._detect_and_save_user_info(target_dir)
+        logger.info("凭证备份成功 → %s", target_dir)
+        return True
 
     @staticmethod
     def _detect_and_save_user_info(target_dir: Path) -> None:
         """检测当前微信的 wxid 和头像，保存到账号备份目录。"""
-        from config.settings import get_settings
-        s = get_settings()
-        xwechat_dir = Path(s.wechat_data_dir) / "xwechat_files"
-        if not xwechat_dir.is_dir():
-            return
+        try:
+            from config.settings import get_settings
+            s = get_settings()
+            xwechat_dir = Path(s.wechat_data_dir) / "xwechat_files"
+            if not xwechat_dir.is_dir():
+                return
 
-        now = __import__("time").time()
+            now = __import__("time").time()
 
-        # 1) 找最近活跃的 wxid 目录
-        wxid_dirs = []
-        for d in xwechat_dir.iterdir():
-            if d.is_dir() and d.name.startswith("wxid_"):
-                max_mtime = 0
-                for f in d.rglob("*"):
-                    if f.is_file():
-                        mtime = f.stat().st_mtime
-                        if mtime > max_mtime:
-                            max_mtime = mtime
-                wxid_dirs.append((max_mtime, d.name))
-        wxid_dirs.sort(reverse=True)
-
-        detected_wxid = None
-        if wxid_dirs and (now - wxid_dirs[0][0]) < 300:
-            # 最近 5 分钟内有活动的 wxid
-            detected_wxid = wxid_dirs[0][1]
-            (target_dir / "wxid.txt").write_text(detected_wxid, encoding="utf-8")
-            logger.debug("检测到 wxid: %s", detected_wxid)
-
-        # 2) 找最近修改的头像文件（无时间限制，取最新的）
-        head_dir = xwechat_dir / "all_users" / "head_imgs"
-        head_files = []
-        if head_dir.is_dir():
-            for d in head_dir.iterdir():
-                if d.is_dir():
-                    for f in d.iterdir():
+            # 1) 找最近活跃的 wxid 目录
+            wxid_dirs = []
+            for d in xwechat_dir.iterdir():
+                if d.is_dir() and d.name.startswith("wxid_"):
+                    max_mtime = 0
+                    for f in d.rglob("*"):
                         if f.is_file():
-                            head_files.append((f.stat().st_mtime, f))
-        head_files.sort(reverse=True)
+                            mtime = f.stat().st_mtime
+                            if mtime > max_mtime:
+                                max_mtime = mtime
+                    wxid_dirs.append((max_mtime, d.name))
+            wxid_dirs.sort(reverse=True)
 
-        if head_files:
-            try:
-                shutil.copy2(str(head_files[0][1]), str(target_dir / "avatar.jpg"))
-                logger.debug("头像已保存: %s (mtime=%s)",
-                             head_files[0][1],
-                             __import__("datetime").datetime.fromtimestamp(head_files[0][0]))
-            except OSError as e:
-                logger.debug("头像保存失败: %s", e)
+            if wxid_dirs and (now - wxid_dirs[0][0]) < 300:
+                detected_wxid = wxid_dirs[0][1]
+                (target_dir / "wxid.txt").write_text(detected_wxid, encoding="utf-8")
+                logger.debug("检测到 wxid: %s", detected_wxid)
+
+            # 2) 找最近修改的头像文件
+            head_dir = xwechat_dir / "all_users" / "head_imgs"
+            head_files = []
+            if head_dir.is_dir():
+                for d in head_dir.iterdir():
+                    if d.is_dir():
+                        for f in d.iterdir():
+                            if f.is_file():
+                                head_files.append((f.stat().st_mtime, f))
+            head_files.sort(reverse=True)
+
+            if head_files:
+                try:
+                    shutil.copy2(str(head_files[0][1]), str(target_dir / "avatar.jpg"))
+                    logger.debug("头像已保存: %s", head_files[0][1])
+                except OSError as e:
+                    logger.debug("头像保存失败: %s", e)
+        except Exception as e:
+            logger.warning("自动检测用户信息失败: %s", e)
 
     # ---- 自动监控备份 ----
 
@@ -164,9 +162,7 @@ class CredentialManager:
             time.sleep(interval)
 
             if not self._wechat_running():
-                logger.info("微信已退出，做最终备份尝试")
-                if self._try_backup(target_dir):
-                    return True
+                logger.info("微信已退出，停止监控")
                 return False
 
             if not self._files_ready():
@@ -176,7 +172,10 @@ class CredentialManager:
             if current_count > initial_count:
                 logger.info("检测到新增主窗口 (%d → %d)，已登录",
                             initial_count, current_count)
-                time.sleep(1)
+                # 此时 config 目录只有本账号刚写入的凭证，立即备份
+                time.sleep(5)
+                self._try_backup(target_dir)
+                time.sleep(5)
                 if self._try_backup(target_dir):
                     logger.info("自动备份成功 → %s", target_dir)
                     return True
@@ -198,21 +197,22 @@ class CredentialManager:
 
         def cb(hwnd: int, _ctx: None) -> bool:
             nonlocal count
-            if not win32gui.IsWindowVisible(hwnd):
-                return True
-            title = win32gui.GetWindowText(hwnd)
-            cls = win32gui.GetClassName(hwnd)
-            if not (title == "微信" or cls.startswith("Qt5") or "WeChat" in cls):
-                return True
-            # 尺寸：宽或高 > 500（排除登录窗口 ~370×485）
-            rect = win32gui.GetWindowRect(hwnd)
-            w, h = rect[2] - rect[0], rect[3] - rect[1]
-            if w <= 500 and h <= 500:
-                return True
-            # 样式：可调大小
-            style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
-            if style & WS_SIZEBOX:
-                count += 1
+            try:
+                if not win32gui.IsWindowVisible(hwnd):
+                    return True
+                title = win32gui.GetWindowText(hwnd)
+                cls = win32gui.GetClassName(hwnd)
+                if not (title == "微信" or cls.startswith("Qt5") or "WeChat" in cls):
+                    return True
+                rect = win32gui.GetWindowRect(hwnd)
+                w, h = rect[2] - rect[0], rect[3] - rect[1]
+                if w <= 500 and h <= 500:
+                    return True
+                style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
+                if style & WS_SIZEBOX:
+                    count += 1
+            except Exception:
+                pass  # 跳过无法访问的窗口
             return True
 
         win32gui.EnumWindows(cb, None)
@@ -223,7 +223,7 @@ class CredentialManager:
         try:
             return self.backup(target_dir)
         except Exception as e:
-            logger.debug("备份尝试失败: %s", e)
+            logger.warning("备份尝试失败: %s", e)
             return False
 
     def _files_ready(self) -> bool:
@@ -235,24 +235,30 @@ class CredentialManager:
         """检查是否有微信进程在运行（含登录窗口到主窗口的过渡期）。"""
         try:
             from core.process_detector import ProcessDetector
-            # 主检测：可见窗口
             if ProcessDetector.is_running():
                 return True
-            # 兜底：按进程名检测（扫码登录窗口关闭→主窗口出现的间隙）
             return len(ProcessDetector.get_all_wechat_processes()) > 0
-        except Exception:
-            return True  # 无法检测时假设仍在运行
+        except Exception as e:
+            logger.warning("微信进程检测失败: %s，假设仍在运行", e)
+            return True
 
     # ---- 凭证切换 ----
 
     def switch_to(self, source_dir: Path) -> bool:
         """
-        单账号凭证切换（优先硬链接，完全透明）。
+        单账号凭证切换。
 
-        Args:
-            source_dir: 账号凭证备份目录。
+        先复制备份到临时目录，再用临时目录创建硬链接到 config。
+        微信回写只会污染临时目录，备份文件保持干净。
         """
-        return self._do_switch(source_dir, prefer_hardlink=True)
+        import tempfile
+        tmp_dir = Path(tempfile.mkdtemp(prefix="wechat_echo_"))
+        for src in source_dir.iterdir():
+            if src.is_file():
+                shutil.copy2(str(src), str(tmp_dir / src.name))
+        return self._do_switch(tmp_dir, prefer_hardlink=True)
+        # 临时目录不清理——硬链接创建后，临时目录条目删除不影响 config
+        # 由系统 temp 目录回收机制处理
 
     def switch_to_symlink(self, source_dir: Path) -> bool:
         """
@@ -263,34 +269,60 @@ class CredentialManager:
         """
         return self._do_switch(source_dir, prefer_hardlink=False)
 
-    def _do_switch(self, source_dir: Path, *, prefer_hardlink: bool) -> bool:
+    def _do_switch(self, source_dir: Path, *, prefer_hardlink: bool, use_copy: bool = False) -> bool:
         if not source_dir.is_dir():
             logger.error("凭证源目录不存在: %s", source_dir)
             return False
 
-        for fname in CRED_FILES:
-            if not (source_dir / fname).is_file():
-                logger.error("凭证源文件缺失: %s", source_dir / fname)
-                return False
+        # 至少要有关键凭证文件
+        if not all((source_dir / f).is_file() for f in CRED_FILES):
+            logger.error("凭证源文件缺失 (需要 global_config + global_config.crc)")
+            return False
 
         self._wechat_dir.mkdir(parents=True, exist_ok=True)
 
+        # 先清除目标目录中所有文件
+        for old in list(self._wechat_dir.iterdir()):
+            if old.is_file() or old.is_symlink():
+                self._remove_path(old)
+
+        # 复制备份目录中所有文件到 config 目录
         success = True
-        for fname in CRED_FILES:
-            target = self._wechat_dir / fname
-            source = source_dir / fname
-            self._remove_path(target)
-            if prefer_hardlink:
-                if not self._create_link(source, target):
-                    success = False
+        for src in source_dir.iterdir():
+            if not src.is_file():
+                continue
+            target = self._wechat_dir / src.name
+            src_hash = hashlib.md5(src.read_bytes()).hexdigest()[:8] if src.is_file() else "?"
+            ok = False
+            if use_copy:
+                ok = self._create_copy(src, target)
+            elif prefer_hardlink:
+                ok = self._create_link(src, target)
             else:
-                if not self._create_symlink(source, target):
-                    success = False
+                ok = self._create_symlink(src, target)
+            if not ok:
+                success = False
+            else:
+                tgt_hash = hashlib.md5(target.read_bytes()).hexdigest()[:8] if target.is_file() else "?"
+                logger.info("[切换] %s size=%d src_hash=%s dst_hash=%s %s",
+                            src.name, src.stat().st_size, src_hash, tgt_hash,
+                            "OK" if src_hash == tgt_hash else "HASH MISMATCH!")
 
         if success:
             logger.info("凭证切换成功 (%s) → %s",
                         "硬链接" if prefer_hardlink else "软链接", source_dir)
         return success
+
+    @staticmethod
+    def _create_copy(source: Path, dest: Path) -> bool:
+        """文件复制（不会因微信回写污染源文件）。"""
+        try:
+            shutil.copy2(str(source), str(dest))
+            logger.debug("复制成功: %s → %s", source, dest)
+            return True
+        except OSError as e:
+            logger.warning("复制失败 %s → %s: %s", source, dest, e)
+            return False
 
     @staticmethod
     def _create_link(source: Path, link_path: Path) -> bool:
@@ -331,6 +363,19 @@ class CredentialManager:
         except Exception as e:
             logger.error("软链接异常: %s", e)
         return False
+
+    def clear_config(self) -> bool:
+        """清除核心凭证文件，保留 upgrade_v4 等让微信能正常初始化。"""
+        self._wechat_dir.mkdir(parents=True, exist_ok=True)
+        ok = True
+        for fname in CRED_FILES + ["client_config", "client_config.crc"]:
+            fpath = self._wechat_dir / fname
+            self._remove_path(fpath)
+            if fpath.is_file() or fpath.is_symlink():
+                logger.warning("无法清除（可能被占用）: %s", fpath)
+                ok = False
+        logger.debug("已清除核心凭证文件")
+        return ok
 
     def _remove_path(self, path: Path) -> None:
         """安全删除文件 / 硬链接 / 软链接。"""

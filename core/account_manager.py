@@ -157,11 +157,13 @@ class AccountManager:
         """更新账号字段（name, remark, credential_dir 等）。"""
         acc = self._accounts.get(account_id)
         if not acc:
+            logger.warning("更新失败：账号不存在 id=%s", account_id)
             return False
         for k, v in kwargs.items():
             if hasattr(acc, k):
                 setattr(acc, k, v)
         self._save()
+        logger.debug("账号已更新: %s %s", account_id, list(kwargs.keys()))
         return True
 
     def mark_logged_in(self, account_id: str) -> None:
@@ -170,6 +172,7 @@ class AccountManager:
         if acc:
             acc.last_login = datetime.now().strftime(DATE_FORMAT)
             self._save()
+            logger.debug("账号已标记登录: %s", account_id)
 
     def refresh_wxid(self, account_id: str) -> bool:
         """从备份目录读取 wxid.txt 并更新到账号信息。"""
@@ -211,7 +214,10 @@ class AccountManager:
 
     def _save(self) -> None:
         """保存到 JSON 文件。"""
-        self._file.parent.mkdir(parents=True, exist_ok=True)
-        data = {"accounts": [a.to_dict() for a in self._accounts.values()]}
-        with open(self._file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        try:
+            self._file.parent.mkdir(parents=True, exist_ok=True)
+            data = {"accounts": [a.to_dict() for a in self._accounts.values()]}
+            with open(self._file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            logger.error("保存账号数据失败: %s", e)

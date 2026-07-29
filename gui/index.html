@@ -341,7 +341,6 @@
   <div class="modal">
     <h2>添加账号</h2>
     <div><label>名称</label><input type="text" id="addName" placeholder="输入账号名称" autofocus></div>
-    <div class="hint">添加后请在微信中登录该账号，然后点击卡片中的备份按钮，下次即可免扫码启动</div>
     <div class="modal-actions">
       <button class="btn-text" onclick="closeModal('addModal')">取消</button>
       <button class="btn-login" onclick="doAddAccount()">确认</button>
@@ -358,6 +357,9 @@
     <div><label>存储位置</label><div class="row"><span class="path-display" id="setRoot">-</span><button class="btn-text" onclick="browseFile('root')">浏览</button></div></div>
     <label class="checkbox-row"><input type="checkbox" id="setAuto"> 开机自动启动</label>
     <div class="row"><label style="flex:1">日志级别</label><select id="setLog" style="width:auto"><option>DEBUG</option><option selected>INFO</option><option>WARNING</option><option>ERROR</option></select></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn-text" onclick="exportLogs()" title="打包日志文件用于远程调试">导出日志</button>
+    </div>
     <div class="modal-actions">
       <button class="btn-text" onclick="closeModal('settingsModal')">取消</button>
       <button class="btn-login" onclick="doSaveSettings()">保存</button>
@@ -421,7 +423,7 @@ function render(filtered) {
       ? `<img src="${a.avatar_base64}" onerror="this.style.display='none';this.nextSibling.style.display='flex'" alt=""><span style="display:none">${esc(a.display_title).charAt(0)}</span>`
       : `<span>${(a.display_title || a.name).charAt(0)}</span>`;
 
-    return `<div class="card" ${a.is_online ? '' : `onclick="launchAccount('${a.id}')"`} style="${a.is_online ? '' : 'cursor:pointer'}">
+    return `<div class="card" ${a.has_credentials ? '' : `onclick="launchAccount('${a.id}')"`} style="${a.has_credentials ? '' : 'cursor:pointer'}">
       <div class="avatar">${avatar}</div>
       <div class="info">
         <div class="title" onclick="event.stopPropagation();editWechatName('${a.id}')">${esc(a.display_title)}<span class="edit-hint">✎</span></div>
@@ -532,6 +534,11 @@ async function browseFile(type) {
     else if (type === 'data') document.getElementById('setData').innerText = p;
     else document.getElementById('setRoot').innerText = p;
   }
+}
+
+async function exportLogs() {
+  const r = await api.export_logs();
+  toast(r.ok, r.msg);
 }
 
 // ——— modal ———

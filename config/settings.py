@@ -12,6 +12,10 @@ import winreg
 from pathlib import Path
 from typing import Optional
 
+from utils.logger import get_logger
+
+logger = get_logger("settings")
+
 
 # ---- 默认值 ----
 
@@ -187,12 +191,12 @@ class Settings:
             try:
                 with open(self._file_path, "r", encoding="utf-8") as f:
                     saved = json.load(f)
-                # 合并：只覆盖已存在的键（不触发 setter 副作用）
                 for k in DEFAULTS:
                     if k in saved:
                         self._data[k] = saved[k]
-            except (json.JSONDecodeError, OSError):
-                pass  # 文件损坏则使用默认值
+                logger.debug("设置已加载: %s", self._file_path)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("加载设置文件失败，使用默认值: %s", e)
 
     def sync_auto_start(self) -> None:
         """确保注册表自启状态与设置一致（程序启动时调用一次）。"""
@@ -206,6 +210,7 @@ class Settings:
         self.settings_dir.mkdir(parents=True, exist_ok=True)
         with open(self._file_path, "w", encoding="utf-8") as f:
             json.dump(self._data, f, ensure_ascii=False, indent=2)
+        logger.debug("设置已保存: %s", self._file_path)
 
     def get_all(self) -> dict:
         return dict(self._data)
@@ -228,8 +233,9 @@ class Settings:
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_WRITE) as key:
                 winreg.SetValueEx(key, RUN_VALUE_NAME, 0, winreg.REG_SZ, Settings._get_exe_path())
-        except OSError:
-            pass  # 静默失败，不自启不影响主功能
+            logger.info("已设置开机自启")
+        except OSError as e:
+            logger.warning("设置开机自启失败: %s", e)
 
     @staticmethod
     def _remove_auto_start() -> None:
@@ -238,10 +244,11 @@ class Settings:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_WRITE) as key:
                 try:
                     winreg.DeleteValue(key, RUN_VALUE_NAME)
+                    logger.info("已取消开机自启")
                 except FileNotFoundError:
                     pass
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning("取消开机自启失败: %s", e)
 
 
 # 全局单例

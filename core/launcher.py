@@ -33,8 +33,6 @@ class Launcher:
     def __init__(self, wechat_exe_path: str) -> None:
         self._exe = wechat_exe_path
         self._processes: list[subprocess.Popen] = []
-        # 跟踪: account_id → PID 列表
-        self._account_pids: dict[str, list[int]] = {}
 
     # ---- 属性 ----
 
@@ -48,20 +46,14 @@ class Launcher:
 
     # ---- 启动 ----
 
-    def launch_single(self, account_id: str = "") -> Optional[subprocess.Popen]:
+    def launch_single(self) -> Optional[subprocess.Popen]:
         """
         启动单个微信实例。
-
-        Args:
-            account_id: 可选，关联的账号 ID，用于后续在线状态追踪。
 
         Returns:
             Popen 对象，若失败则返回 None。
         """
-        proc = self._spawn()
-        if proc and account_id:
-            self._track(account_id, proc.pid)
-        return proc
+        return self._spawn()
 
     def launch_multi(self, count: int, on_each: Optional[Callable[[int], None]] = None) -> list[subprocess.Popen]:
         """
