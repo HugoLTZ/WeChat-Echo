@@ -47,6 +47,7 @@ def _acc_to_dict(acc: Account) -> dict[str, Any]:
         "last_login": acc.last_login,
         "last_login_text": _format_last_login(acc.last_login),
         "is_online": acc.is_online,
+        "is_launching": acc.is_launching,
     }
 
 
@@ -144,11 +145,13 @@ def launch_account(account_id: str) -> dict[str, Any]:
         if not credential_mgr.switch_to(Path(acc.credential_dir)):
             logger.error("凭证切换失败: %s", acc.id)
             return {"ok": False, "msg": "凭证切换失败"}
+        if not credential_mgr.verify_switch(Path(acc.credential_dir)):
+            logger.error("凭证切换验证失败: %s", acc.id)
+            return {"ok": False, "msg": "凭证切换验证失败，请重新备份凭证"}
 
-    proc = launcher.launch_single()
+    proc = launcher.launch_single(acc.id)
     if proc:
         account_mgr.mark_logged_in(acc.id)
-        acc.is_online = True
 
         if not acc.has_credentials:
             cred_dir = Path(acc.credential_dir)
@@ -189,36 +192,55 @@ def launch_all() -> dict[str, Any]:
         acc = ready[index]
         credential_mgr.switch_to_symlink(Path(acc.credential_dir))
 
-    procs = launcher.launch_sequential(len(ready), between=on_before_launch)
+    ids = [a.id for a in ready]
+    procs = launcher.launch_sequential(len(ready), between=on_before_launch, account_ids=ids)
     for acc in ready:
         account_mgr.mark_logged_in(acc.id)
-        acc.is_online = True  # 标记在线
 
     return {"ok": True, "msg": f"已启动 {len(procs)}/{len(ready)} 个微信实例"}
 
 
 def refresh_online_status() -> list[str]:
     """
-    根据实际微信进程检测刷新各账号在线状态。
+    通过 PID 追踪精确刷新各账号状态：在线 / 启动中 / 离线。
+    同时尝试收养未被追踪的孤儿微信进程。
     返回当前在线的 account_id 列表。
     """
-    count = ProcessDetector.count()
-    online_ids = []
+    # 尝试收养孤儿进程（用户手动启动的微信等）
+    logger.info("当前追踪 PID: %s (%d 条)", dict(launcher._account_pids), len(launcher._account_pids))
+    cred_dirs: dict[str, str] = {}
     for acc in account_mgr.list_all():
-        # 用进程检测作为基准：进程数>0 且有最近登录记录的可能在线
-        # 精确匹配依赖 _sync_account_status
-        online_ids.append(acc.id)
+        if acc.has_credentials and acc.id not in launcher._account_pids:
+            cred_dirs[acc.id] = acc.credential_dir
+    if cred_dirs:
+        logger.info("尝试收养孤儿进程，候选账号: %s", list(cred_dirs.keys()))
+        try:
+            adopted = launcher.adopt_orphan_processes(
+                settings.wechat_data_dir,
+                cred_dirs,
+            )
+            if adopted:
+                logger.info("收养了 %d 个孤儿微信进程", adopted)
+        except Exception:
+            logger.warning("孤儿进程收养失败（非关键路径）", exc_info=True)
+    else:
+        logger.info("无需收养：所有有凭证的账号均已追踪 PID")
 
-    if count == 0:
-        # 无微信进程，全部离线
+    online_ids = launcher.get_online_accounts()
+    launching_ids = launcher.get_launching_accounts()
+    for acc in account_mgr.list_all():
+        acc.is_online = acc.id in online_ids
+        acc.is_launching = acc.id in launching_ids
+    try:
+        total = ProcessDetector.count()
+    except Exception:
+        total = len(online_ids) + len(launching_ids)  # 回退：用已知 PID 数估算
+    if total == 0:
         for acc in account_mgr.list_all():
             acc.is_online = False
+            acc.is_launching = False
         return []
-
-    # 有进程时，保留之前标记为在线的账号状态
-    # （无法精确区分哪个进程属于哪个账号）
-    currently_online = [a.id for a in account_mgr.list_all() if a.is_online]
-    return currently_online
+    return list(online_ids)
 
 
 # ---- 进程状态 ----
@@ -243,12 +265,25 @@ def get_status() -> dict[str, Any]:
     return result
 
 
+def kill_account(account_id: str) -> dict[str, Any]:
+    """单独关闭指定账号的微信进程。"""
+    acc = account_mgr.get(account_id)
+    if not acc:
+        return {"ok": False, "msg": "账号不存在"}
+    acc.is_online = False
+    if launcher.kill_account(account_id):
+        return {"ok": True, "msg": f"已关闭「{acc.name}」"}
+    return {"ok": False, "msg": "该账号未在运行"}
+
+
 def kill_all_wechat() -> dict[str, Any]:
     """关闭全部微信进程。"""
     count = ProcessDetector.count()
     if count == 0:
         return {"ok": True, "msg": "当前无微信进程"}
     killed = ProcessDetector.kill_all()
+    for acc in account_mgr.list_all():
+        acc.is_online = False
     return {"ok": True, "msg": f"已关闭 {killed} 个微信进程"}
 
 

@@ -76,7 +76,7 @@ def main() -> None:
     account_mgr.load()
 
     credential_mgr = CredentialManager(settings.wechat_config_dir)
-    launcher = Launcher(settings.wechat_exe_path)
+    launcher = Launcher(settings.wechat_exe_path, str(settings.settings_dir))
     detector = ProcessDetector()
 
     logger.info(
@@ -109,6 +109,7 @@ def main() -> None:
         api.get_status,
         api.refresh_online_status,
         api.kill_all_wechat,
+        api.kill_account,
         api.get_settings_data,
         api.save_settings,
         api.select_file,

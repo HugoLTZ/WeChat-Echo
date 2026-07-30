@@ -27,6 +27,7 @@ WeChat-Echo-Test.spec
 data/credentials/
 data/config/accounts.json
 data/config/settings.json
+data/config/pid_map.json
 
 # Logs
 logs/*.log
