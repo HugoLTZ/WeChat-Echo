@@ -173,3 +173,42 @@ class ProcessDetector:
                 callback(count)
             time.sleep(0.5)
         return len(_get_main_wechat_pids()) == 0
+
+    @staticmethod
+    def pid_has_main_window(pid: int) -> bool:
+        """
+        检查指定 PID 是否有可见的微信主窗口（非登录窗口）。
+
+        主窗口特征：可见 + 微信标题/类名 + 尺寸大（宽或高 > 500）+ 可调大小。
+        登录窗口（~370×485，无 WS_SIZEBOX）不会被计入。
+        """
+        GWL_STYLE = -16
+        WS_SIZEBOX = 0x00040000
+        result = False
+
+        def cb(hwnd: int, _ctx: None) -> bool:
+            nonlocal result
+            try:
+                if not win32gui.IsWindowVisible(hwnd):
+                    return True
+                _, hwnd_pid = win32process.GetWindowThreadProcessId(hwnd)
+                if hwnd_pid != pid:
+                    return True
+                title = win32gui.GetWindowText(hwnd)
+                cls = win32gui.GetClassName(hwnd)
+                if not (title == "微信" or cls.startswith("Qt5") or "WeChat" in cls):
+                    return True
+                rect = win32gui.GetWindowRect(hwnd)
+                w, h = rect[2] - rect[0], rect[3] - rect[1]
+                if w <= 500 and h <= 500:
+                    return True
+                style = win32gui.GetWindowLong(hwnd, GWL_STYLE)
+                if style & WS_SIZEBOX:
+                    result = True
+                    return False  # 找到，停止枚举
+            except Exception:
+                pass
+            return True
+
+        win32gui.EnumWindows(cb, None)
+        return result

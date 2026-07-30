@@ -87,6 +87,7 @@
 
   /* card ————————————————————————— */
   .card {
+    position: relative;
     background: var(--card);
     border-radius: var(--radius);
     padding: 14px 20px;
@@ -94,7 +95,6 @@
     box-shadow: var(--shadow-sm);
     border: .5px solid transparent;
     transition: var(--transition);
-    overflow: hidden;
   }
   .card:hover {
     box-shadow: var(--shadow-md);
@@ -146,39 +146,27 @@
   .badge-ok { background: #e8f8ed; color: #1a7d3e; }
   .badge-warn { background: #fff3e0; color: #b05d00; }
 
-  .actions-wrap { position: relative; flex-shrink: 0; }
-  .card-actions {
-    position: absolute; right: 36px; top: 50%; transform: translateY(-50%);
-    display: flex; gap: 2px;
-    opacity: 0; visibility: hidden;
-    transition: opacity .2s ease, visibility .2s ease;
-  }
-  .card-actions.show {
-    opacity: 1; visibility: visible;
-  }
-  .btn-more {
+  .card-delete {
+    position: absolute; top: -10px; right: -10px;
     width: 32px; height: 32px; border-radius: 50%; border: none;
-    cursor: pointer; background: none; flex-shrink: 0;
+    cursor: pointer; background: none;
     display: flex; align-items: center; justify-content: center;
-    transition: var(--transition);
+    opacity: 0; transition: var(--transition);
   }
-  .btn-more:hover { background: rgba(0,0,0,.05); }
-  .btn-more img { width: 18px; height: 18px; object-fit: contain; opacity: .4; }
-  .btn-more:hover img { opacity: .65; }
+  .card:hover .card-delete { opacity: 1; }
+  .card-delete:hover { background: rgba(0,0,0,.06); }
+  .card-delete img { width: 16px; height: 16px; object-fit: contain; opacity: .45; }
+  .card-delete:hover img { opacity: .75; }
 
-  /* buttons ——————————————————————— */
-  /* card action icon buttons */
-  .btn-icon {
-    width: 32px; height: 32px; border-radius: 50%; border: none;
-    cursor: pointer; transition: all .18s ease;
-    display: flex; align-items: center; justify-content: center;
-    background: none; flex-shrink: 0;
+  .card-close {
+    padding: 4px 12px; border-radius: 100px; border: none;
+    font-size: 11px; font-weight: 500; cursor: pointer;
+    font-family: inherit; letter-spacing: -.1px; flex-shrink: 0;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #fff; margin-right: 8px;
+    transition: all .2s ease;
   }
-  .btn-icon:hover { background: rgba(0,0,0,.05); }
-  .btn-icon img { width: 20px; height: 20px; object-fit: contain; opacity: .5; transition: opacity .18s ease; }
-  .btn-icon:hover img { opacity: .8; }
-  .btn-icon:disabled { cursor: default; }
-  .btn-icon:disabled img { opacity: .25; }
+  .card-close:hover { opacity: .85; transform: translateY(-0.5px); }
 
   /* footer text buttons */
   .btn-text {
@@ -207,6 +195,12 @@
     box-shadow: 0 6px 20px rgba(0,0,0,.16), 0 0 0 .5px rgba(0,0,0,.1);
   }
   .btn-login:active { transform: translateY(0); }
+  .btn-login.info {
+    background: var(--card); color: var(--text);
+    box-shadow: var(--shadow-sm);
+    border: .5px solid var(--border);
+    cursor: default; pointer-events: none;
+  }
 
   /* footer ——————————————————————— */
   .footer {
@@ -266,10 +260,52 @@
   }
   .toast.success { background: rgba(52,199,89,.92); color: #fff; }
   .toast.error { background: rgba(255,59,48,.92); color: #fff; }
+  .toast.progress { background: rgba(28,28,30,.9); color: #fff; display: flex; align-items: center; gap: 10px; }
+  .toast .progress-bar {
+    width: 80px; height: 4px; background: rgba(255,255,255,.2);
+    border-radius: 100px; overflow: hidden;
+  }
+  .toast .progress-bar-fill {
+    height: 100%; background: var(--green);
+    border-radius: 100px; transition: width .3s ease;
+  }
   @keyframes slideIn {
     from { opacity: 0; transform: translateY(-12px) scale(.95); }
     to { opacity: 1; transform: translateY(0) scale(1); }
   }
+
+  /* login waiting overlay ————————————— */
+  .login-overlay {
+    position: fixed; inset: 0; background: rgba(245,245,247,.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 300; opacity: 0; pointer-events: none;
+    transition: opacity .25s; backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .login-overlay.active { opacity: 1; pointer-events: auto; }
+  .login-waiting {
+    background: var(--card); border-radius: var(--radius);
+    padding: 40px 48px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,.12), 0 0 0 .5px rgba(0,0,0,.06);
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+  }
+  .login-waiting h2 { font-size: 17px; font-weight: 700; letter-spacing: -.3px; }
+  .login-waiting p { font-size: 13px; color: var(--secondary); line-height: 1.6; }
+  .login-spinner {
+    width: 36px; height: 36px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .btn-cancel {
+    padding: 8px 20px; border-radius: 100px; border: none;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    font-family: inherit; letter-spacing: -.2px;
+    background: none; color: var(--secondary);
+    transition: var(--transition);
+    margin-top: 8px;
+  }
+  .btn-cancel:hover { color: var(--red); background: rgba(255,59,48,.06); }
 
   /* scrollbar ——————————————————— */
   .main::-webkit-scrollbar { width: 5px; }
@@ -283,6 +319,9 @@
 <!-- title bar -->
 <div class="titlebar">
   <span class="titlebar-drag-area"></span>
+  <button class="titlebar-btn" title="最小化" onclick="api.minimize_window()">
+    <img src="{{HIDE_ICON}}" alt="">
+  </button>
   <button class="titlebar-btn" title="设置" onclick="openSettings()">
     <img src="{{SETTING_ICON}}" alt="">
   </button>
@@ -309,8 +348,18 @@
 <div class="footer">
   <button class="btn-text" onclick="killAll()">关闭微信</button>
   <span style="flex:1"></span>
-  <button class="btn-text" onclick="openAddAccount()">添加账号</button>
-  <button class="btn-login" onclick="launchAll()">登录</button>
+  <button class="btn-text" onclick="startAddAccount()">添加账号</button>
+  <button class="btn-login" id="btnLogin" onclick="launchAll()">登录</button>
+</div>
+
+<!-- login waiting -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-waiting">
+    <div class="login-spinner"></div>
+    <h2>等待扫码登录</h2>
+    <p>请使用手机微信扫描屏幕上的二维码<br>登录成功后凭证将自动备份</p>
+    <button class="btn-cancel" onclick="cancelAddAccount()">取消</button>
+  </div>
 </div>
 
 <!-- toast -->
@@ -408,8 +457,8 @@ async function refresh() {
 }
 async function refreshStatus() {
   try {
-    await api.refresh_online_status();
-    await refresh();
+    const r = await api.refresh_online_status();
+    if (r && r.changed) await refresh();
   } catch(e) {}
 }
 
@@ -435,39 +484,40 @@ function render(filtered) {
     } else {
       subtitle = `${last}${a.has_credentials ? '' : '  ·  请先备份凭证'}`;
       cardClass = '';
-      clickable = ` onclick="launchAccount('${a.id}')" style="cursor:pointer"`;
+      clickable = a.has_credentials ? '' : ` onclick="launchAccount('${a.id}')" style="cursor:pointer"`;
     }
 
     const avatar = a.avatar_base64
       ? `<img src="${a.avatar_base64}" onerror="this.style.display='none';this.nextSibling.style.display='flex'" alt=""><span style="display:none">${esc(a.display_title).charAt(0)}</span>`
       : `<span>${(a.display_title || a.name).charAt(0)}</span>`;
 
-    const running = a.is_online || a.is_launching;
-    const actionBtn = running
-      ? `<button class="btn-icon" onclick="event.stopPropagation();killAccount('${a.id}')" title="关闭微信"><img src="{{CLOSE_ICON}}" alt=""></button>`
-      : `<button class="btn-icon" onclick="event.stopPropagation();launchAccount('${a.id}')" title="启动"><img src="{{ICON_RUN}}" alt=""></button>`;
     const dotClass = a.is_online ? ' online' : (a.is_launching ? '' : ' offline');
+    const running = a.is_online || a.is_launching;
 
     return `<div class="card${cardClass}"${clickable}>
       <div class="dot${dotClass}"></div>
       <div class="avatar">${avatar}</div>
       <div class="info">
-        <div class="title" onclick="event.stopPropagation();editWechatName('${a.id}')">${esc(a.display_title)}<span class="edit-hint">✎</span></div>
+        <div class="title">${esc(a.display_title)}<span class="edit-hint" onclick="event.stopPropagation();editWechatName('${a.id}')">✎</span></div>
         <div class="sub">${subtitle}</div>
       </div>
-      <div class="actions-wrap">
-        <div class="card-actions">
-          ${actionBtn}
-          <button class="btn-icon" onclick="event.stopPropagation();deleteAccount('${a.id}')" title="删除">
-            <img src="{{ICON_DELETE}}" alt="">
-          </button>
-        </div>
-        <button class="btn-more" onclick="event.stopPropagation();toggleCardActions(this)" title="更多">
-          <img src="{{ICON_MORE}}" alt="">
-        </button>
-      </div>
+      ${running ? `<button class="card-close" onclick="event.stopPropagation();killAccount('${a.id}')">下线</button>` : ''}
+      <button class="card-delete" onclick="event.stopPropagation();deleteAccount('${a.id}')" title="删除">
+        <img src="{{ICON_DELETE}}" alt="">
+      </button>
     </div>`;
   }).join('');
+
+  // 更新登录按钮状态
+  const onlineCount = accounts.filter(a => a.is_online).length;
+  const btn = document.getElementById('btnLogin');
+  if (onlineCount > 0) {
+    btn.className = 'btn-login info';
+    btn.textContent = `${onlineCount} 个在线`;
+  } else {
+    btn.className = 'btn-login';
+    btn.textContent = '登录';
+  }
 }
 
 
@@ -496,8 +546,31 @@ async function doDeleteAccount() {
 
 async function launchAll() {
   const r = await api.launch_all();
-  toast(r.ok, r.msg);
-  await refresh();
+  if (!r.ok) { toast(false, r.msg); return; }
+
+  // 显示进度提示
+  const el = document.createElement('div');
+  el.className = 'toast progress';
+  el.id = 'launchProgressToast';
+  el.innerHTML = '正在启动 <span id="launchProgressText">0/0</span> 个微信窗口…<div class="progress-bar"><div class="progress-bar-fill" id="launchProgressBar" style="width:0%"></div></div>';
+  document.getElementById('toastContainer').appendChild(el);
+
+  // 轮询进度
+  const poll = setInterval(async () => {
+    const p = await api.get_launch_progress();
+    const bar = document.getElementById('launchProgressBar');
+    const text = document.getElementById('launchProgressText');
+    if (bar && text) {
+      const pct = p.total > 0 ? Math.round(p.current / p.total * 100) : 0;
+      bar.style.width = pct + '%';
+      text.textContent = `${p.current}/${p.total}`;
+    }
+    if (!p.running) {
+      clearInterval(poll);
+      setTimeout(() => el.remove(), 2000);
+      await refresh();
+    }
+  }, 500);
 }
 async function killAccount(id) {
   const r = await api.kill_account(id);
@@ -509,15 +582,37 @@ async function killAll() {
   toast(r.ok, r.msg);
   await refresh();
 }
-async function doAddAccount() {
-  const n = document.getElementById('addName').value.trim();
-  if (!n) { toast(false, '请输入名称'); return; }
-  await api.add_account(n);
-  closeModal('addModal');
-  document.getElementById('addName').value = '';
-  toast(true, `已添加「${n}」`);
-  await refresh();
+// ——— 扫码登录流程 ———
+let loginPollTimer = null;
+
+async function startAddAccount() {
+  const r = await api.start_login_session();
+  if (!r.ok) { toast(false, r.msg); return; }
+  document.getElementById('loginOverlay').classList.add('active');
+  loginPollTimer = setInterval(pollLoginSession, 2000);
 }
+
+async function cancelAddAccount() {
+  clearInterval(loginPollTimer);
+  loginPollTimer = null;
+  document.getElementById('loginOverlay').classList.remove('active');
+  await api.cancel_login_session();
+}
+
+async function pollLoginSession() {
+  const r = await api.check_login_session();
+  if (r.status === 'waiting') return;
+  clearInterval(loginPollTimer);
+  loginPollTimer = null;
+  document.getElementById('loginOverlay').classList.remove('active');
+  if (r.status === 'success') {
+    toast(true, `已添加「${r.account.display_title}」`);
+    await refresh();
+  } else if (r.status === 'cancelled') {
+    toast(false, '登录已取消');
+  }
+}
+
 let editTargetId = null;
 
 function editWechatName(id) {
@@ -576,7 +671,7 @@ async function exportLogs() {
 // ——— modal ———
 function openModal(id) { document.getElementById(id).classList.add('active'); }
 function closeModal(id) { document.getElementById(id).classList.remove('active'); }
-function openAddAccount() { openModal('addModal'); document.getElementById('addName').focus(); }
+
 document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); }));
 
 // ——— toast ———
@@ -588,16 +683,6 @@ function toast(ok, msg) {
   setTimeout(() => el.remove(), 3000);
 }
 
-function toggleCardActions(btn) {
-  const actions = btn.parentElement.querySelector('.card-actions');
-  actions.classList.toggle('show');
-}
-// 点击其他位置关闭
-document.addEventListener('click', e => {
-  if (!e.target.closest('.btn-more')) {
-    document.querySelectorAll('.card-actions.show').forEach(el => el.classList.remove('show'));
-  }
-});
 function esc(s) { const d = document.createElement('div'); d.innerText = s; return d.innerHTML; }
 </script>
 </body>

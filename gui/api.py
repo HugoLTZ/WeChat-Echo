@@ -6,6 +6,7 @@ pywebview JS-Python 桥接 API。
 """
 
 import threading
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -29,9 +30,15 @@ launcher: Launcher = None       # type: ignore[assignment]
 # 自动备份完成标记，前端检测后刷新列表
 _needs_refresh = False
 
+# 扫码登录会话状态
+_login_session: dict[str, Any] = {"active": False, "pid": None}
+
+# 批量登录进度
+_launch_progress: dict[str, Any] = {"running": False, "current": 0, "total": 0, "msg": ""}
+
 
 def _acc_to_dict(acc: Account) -> dict[str, Any]:
-    display_title = acc.wechat_name or acc.wxid_display or acc.name
+    display_title = acc.wechat_name or acc.name
     return {
         "id": acc.id,
         "name": acc.name,
@@ -97,6 +104,94 @@ def add_account(name: str, remark: str = "") -> dict[str, Any]:
     """添加账号。"""
     acc = account_mgr.add(name, remark)
     return _acc_to_dict(acc)
+
+
+# ---- 扫码登录会话 ----
+
+def start_login_session() -> dict[str, Any]:
+    """启动扫码登录会话：清除当前凭证并弹出微信登录窗口。"""
+    global _login_session
+    if _login_session["active"]:
+        return {"ok": False, "msg": "已有登录会话在进行中"}
+
+    if not ProcessDetector.can_launch():
+        return {"ok": False, "msg": f"已达到微信同时在线上限（{ProcessDetector.MAX_INSTANCES} 个）"}
+
+    # 没有微信运行时安全清除凭证，确保弹出扫码界面而非自动登录
+    if ProcessDetector.count() == 0:
+        try:
+            credential_mgr.clear_config()
+        except Exception:
+            logger.warning("清除凭证失败（非关键）", exc_info=True)
+
+    proc = launcher.launch_single()
+    if not proc:
+        return {"ok": False, "msg": "启动微信失败"}
+
+    _login_session = {"active": True, "pid": proc.pid, "creating": False}
+    logger.info("扫码登录会话已启动: PID=%d", proc.pid)
+    return {"ok": True}
+
+
+def check_login_session() -> dict[str, Any]:
+    """检查扫码登录会话状态（前端轮询）。"""
+    global _login_session
+    if not _login_session["active"]:
+        return {"status": "idle"}
+
+    pid = _login_session["pid"]
+
+    # 检查进程是否仍在运行
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        if not proc.is_running():
+            raise psutil.NoSuchProcess(pid)
+    except psutil.NoSuchProcess:
+        logger.info("扫码登录会话取消：微信进程已退出 (PID=%d)", pid)
+        _login_session = {"active": False, "pid": None, "creating": False}
+        return {"status": "cancelled"}
+
+    # 检查是否已出现主窗口（登录成功），creating 标记防止前端轮询重复创建
+    if ProcessDetector.pid_has_main_window(pid) and not _login_session.get("creating"):
+        _login_session["creating"] = True
+        logger.info("扫码登录成功：PID=%d 已出现主窗口", pid)
+        # 等待凭证文件完全写入
+        time.sleep(2)
+
+        # 创建账号
+        accounts = account_mgr.list_all()
+        name = f"Echo - {len(accounts) + 1}"
+        acc = account_mgr.add(name)
+
+        # 备份凭证
+        ok = credential_mgr.backup(Path(acc.credential_dir))
+        if ok:
+            account_mgr.mark_logged_in(acc.id)
+            logger.info("扫码登录：凭证备份成功 → %s", acc.credential_dir)
+        else:
+            logger.warning("扫码登录：凭证备份失败（账号已创建但无凭证）")
+
+        _login_session = {"active": False, "pid": None}
+        return {"status": "success", "account": _acc_to_dict(acc)}
+
+    return {"status": "waiting"}
+
+
+def cancel_login_session() -> dict[str, Any]:
+    """手动取消扫码登录会话（终止微信进程）。"""
+    global _login_session
+    if _login_session["active"]:
+        pid = _login_session["pid"]
+        try:
+            import psutil
+            proc = psutil.Process(pid)
+            proc.kill()
+            logger.info("已终止登录会话进程: PID=%d", pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    _login_session = {"active": False, "pid": None}
+    return {"ok": True}
 
 
 def delete_account(account_id: str, delete_credentials: bool = False) -> bool:
@@ -176,7 +271,8 @@ def launch_account(account_id: str) -> dict[str, Any]:
 
 
 def launch_all() -> dict[str, Any]:
-    """一键启动所有已备份凭证的账号（多开）。"""
+    """一键启动所有已备份凭证的账号（异步，前端轮询 get_launch_progress）。"""
+    global _launch_progress
     accounts = account_mgr.list_all()
     ready = [a for a in accounts if a.has_credentials]
     # 按凭证更新时间从旧到新排序（先注册的账号先启动）
@@ -188,24 +284,48 @@ def launch_all() -> dict[str, Any]:
     if len(ready) > slots:
         return {"ok": False, "msg": f"已备份 {len(ready)} 个账号，但仅剩 {slots} 个上线名额"}
 
-    def on_before_launch(index: int) -> None:
-        acc = ready[index]
-        credential_mgr.switch_to_symlink(Path(acc.credential_dir))
+    _launch_progress = {"running": True, "current": 0, "total": len(ready), "msg": ""}
 
-    ids = [a.id for a in ready]
-    procs = launcher.launch_sequential(len(ready), between=on_before_launch, account_ids=ids)
-    for acc in ready:
-        account_mgr.mark_logged_in(acc.id)
+    def _do_launch() -> None:
+        global _launch_progress
+        try:
+            for i, acc in enumerate(ready):
+                _launch_progress["current"] = i + 1
+                credential_mgr.switch_to_symlink(Path(acc.credential_dir))
+                proc = launcher.launch_single(acc.id)
+                if proc:
+                    account_mgr.mark_logged_in(acc.id)
+                if i < len(ready) - 1:
+                    time.sleep(3.0)
+            _launch_progress["msg"] = f"已启动 {_launch_progress['total']} 个微信实例"
+        except Exception as e:
+            logger.error("批量登录异常: %s", e)
+            _launch_progress["msg"] = f"启动异常: {e}"
+        finally:
+            _launch_progress["running"] = False
 
-    return {"ok": True, "msg": f"已启动 {len(procs)}/{len(ready)} 个微信实例"}
+    threading.Thread(target=_do_launch, daemon=True).start()
+    return {"ok": True, "msg": "开始启动"}
 
 
-def refresh_online_status() -> list[str]:
+def get_launch_progress() -> dict[str, Any]:
+    """返回批量登录进度。"""
+    return dict(_launch_progress)
+
+
+def refresh_online_status() -> dict[str, Any]:
     """
     通过 PID 追踪精确刷新各账号状态：在线 / 启动中 / 离线。
     同时尝试收养未被追踪的孤儿微信进程。
-    返回当前在线的 account_id 列表。
+    返回 {"changed": bool}，changed=True 表示状态有变化（前端据此决定是否重渲染）。
     """
+    # 快照旧状态
+    old_state: dict[str, tuple[bool, bool]] = {}
+    for acc in account_mgr.list_all():
+        old_state[acc.id] = (acc.is_online, acc.is_launching)
+
+    changed = False
+
     # 尝试收养孤儿进程（用户手动启动的微信等）
     logger.info("当前追踪 PID: %s (%d 条)", dict(launcher._account_pids), len(launcher._account_pids))
     cred_dirs: dict[str, str] = {}
@@ -221,6 +341,7 @@ def refresh_online_status() -> list[str]:
             )
             if adopted:
                 logger.info("收养了 %d 个孤儿微信进程", adopted)
+                changed = True
         except Exception:
             logger.warning("孤儿进程收养失败（非关键路径）", exc_info=True)
     else:
@@ -239,8 +360,15 @@ def refresh_online_status() -> list[str]:
         for acc in account_mgr.list_all():
             acc.is_online = False
             acc.is_launching = False
-        return []
-    return list(online_ids)
+
+    # 对比新旧状态，检测变化
+    for acc in account_mgr.list_all():
+        old = old_state.get(acc.id, (False, False))
+        if old != (acc.is_online, acc.is_launching):
+            changed = True
+            break
+
+    return {"changed": changed}
 
 
 # ---- 进程状态 ----
@@ -367,6 +495,15 @@ def export_logs() -> dict[str, Any]:
 
 
 _win_pos: tuple[int, int] = (0, 0)
+
+
+def minimize_window() -> None:
+    """最小化窗口。"""
+    import ctypes
+    hwnd = ctypes.windll.user32.FindWindowW(None, "WeChat-Echo")
+    if hwnd:
+        # SW_MINIMIZE = 6
+        ctypes.windll.user32.ShowWindow(hwnd, 6)
 
 
 def close_window() -> None:

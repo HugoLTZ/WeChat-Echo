@@ -106,6 +106,7 @@ def main() -> None:
         api.backup_credentials,
         api.launch_account,
         api.launch_all,
+        api.get_launch_progress,
         api.get_status,
         api.refresh_online_status,
         api.kill_all_wechat,
@@ -115,8 +116,12 @@ def main() -> None:
         api.select_file,
         api.update_wechat_name,
         api.move_window_by,
+        api.minimize_window,
         api.close_window,
         api.export_logs,
+        api.start_login_session,
+        api.check_login_session,
+        api.cancel_login_session,
     ]
 
     class Api:
@@ -135,6 +140,7 @@ def main() -> None:
     assets_dir = PROJECT_ROOT / "assets"
     icons = {
         "{{SETTING_ICON}}": "setting_selected.png",
+        "{{HIDE_ICON}}": "hide.png",
         "{{CLOSE_ICON}}": "close_selected.png",
         "{{TITLE_LOGO}}": "title_1.png",
         "{{ICON_RUN}}": "run.png",
