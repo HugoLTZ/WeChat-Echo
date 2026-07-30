@@ -21,6 +21,12 @@
 3. **单独管理** — 在线账号可单独关闭，离线账号可单独启动
 4. **顺序启动** — 所有账号绑定后，点击底部「登录」一键启动全部（按绑定顺序）
 
+## 下载
+
+从 [GitHub Releases](https://github.com/HugoLTZ/WeChat-Echo/releases) 下载最新版本 `WeChat-Echo.exe`，右键「以管理员身份运行」即可。
+
+[![GitHub Release](https://img.shields.io/github/v/release/HugoLTZ/WeChat-Echo?label=最新版本)](https://github.com/HugoLTZ/WeChat-Echo/releases/latest)
+
 ## 技术栈
 
 ```
